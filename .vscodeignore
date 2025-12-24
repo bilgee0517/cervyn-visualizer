@@ -4,7 +4,9 @@ src/**/*.map
 tsconfig.json
 
 # Keep webview assets (needed at runtime)
-!src/webview/**
+!src/webview/**/*.ts
+!src/webview/**/*.html
+!src/webview/**/*.css
 
 # Build files
 *.map
