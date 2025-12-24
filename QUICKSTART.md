@@ -4,11 +4,13 @@
 
 ### 1. Open in VS Code
 ```bash
-cd /Users/billy/cervyn-visualizer
+cd /path/to/cervyn-visualizer
 code .
 ```
 
-### 2. Install Dependencies (Already Done)
+Replace `/path/to/cervyn-visualizer` with the actual path where you cloned the repository.
+
+### 2. Install Dependencies
 ```bash
 npm install
 npm run compile
