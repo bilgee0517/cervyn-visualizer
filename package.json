@@ -1,0 +1,182 @@
+{
+  "name": "codebase-visualizer",
+  "displayName": "Codebase Visualizer",
+  "description": "AI-powered, multi-layer architecture visualization with real-time task tracking",
+  "version": "0.1.1",
+  "publisher": "cervyn",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bilgee0517/cervyn-visualizer.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "architecture",
+    "visualization",
+    "diagram",
+    "dependencies",
+    "graph",
+    "codebase",
+    "navigation",
+    "ai",
+    "mcp"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codebaseVisualizer.showGraph",
+        "title": "Codebase Visualizer: Show Graph",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "codebaseVisualizer.refresh",
+        "title": "Codebase Visualizer: Refresh Graph",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codebaseVisualizer.setLayout",
+        "title": "Codebase Visualizer: Change Layout"
+      },
+      {
+        "command": "codebaseVisualizer.setLayer",
+        "title": "Codebase Visualizer: Switch Layer"
+      },
+      {
+        "command": "codebaseVisualizer.exportGraph",
+        "title": "Codebase Visualizer: Export Graph"
+      },
+      {
+        "command": "codebaseVisualizer.proposeChange",
+        "title": "Codebase Visualizer: Propose Change (AI Agent)"
+      },
+      {
+        "command": "codebaseVisualizer.applyProposedChanges",
+        "title": "Codebase Visualizer: Apply Proposed Changes"
+      },
+      {
+        "command": "codebaseVisualizer.listProposedChanges",
+        "title": "Codebase Visualizer: List Proposed Changes"
+      },
+      {
+        "command": "codebaseVisualizer.clearProposedChanges",
+        "title": "Codebase Visualizer: Clear Proposed Changes"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codebaseVisualizer",
+          "title": "Codebase Visualizer",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "codebaseVisualizer": [
+        {
+          "id": "codebaseVisualizerView",
+          "name": "Architecture Graph",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Codebase Visualizer",
+      "properties": {
+        "codebaseVisualizer.defaultLayout": {
+          "type": "string",
+          "default": "dagre",
+          "enum": [
+            "dagre",
+            "concentric",
+            "grid",
+            "cose",
+            "circle"
+          ],
+          "description": "Default graph layout algorithm"
+        },
+        "codebaseVisualizer.defaultLayer": {
+          "type": "string",
+          "default": "implementation",
+          "enum": [
+            "blueprint",
+            "architecture",
+            "implementation",
+            "dependencies"
+          ],
+          "description": "Default visualization layer"
+        },
+        "codebaseVisualizer.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh graph on file changes"
+        },
+        "codebaseVisualizer.maxNodes": {
+          "type": "number",
+          "default": 500,
+          "description": "Maximum number of nodes to display"
+        },
+        "codebaseVisualizer.useSigmaRenderer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Sigma.js renderer (advanced, high-performance) instead of Cytoscape (experimental - set to true to enable)"
+        },
+        "codebaseVisualizer.enableClustering": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic semantic clustering of code modules (LLM-based via MCP server)"
+        },
+        "codebaseVisualizer.showCodeMetrics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show code metrics (complexity, LOC, coverage) in visualization"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "npm run compile:extension && npm run compile:webview",
+    "compile:extension": "tsc -p ./",
+    "compile:webview": "tsc -p tsconfig.webview.json && node scripts/post-build-webview.js",
+    "watch": "tsc -watch -p ./",
+    "watch:webview": "tsc -watch -p tsconfig.webview.json",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "@vscode/test-electron": "^2.3.8",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3",
+    "vsce": "^2.15.0"
+  },
+  "dependencies": {
+    "@typescript-eslint/typescript-estree": "^6.15.0",
+    "cytoscape": "^3.28.1",
+    "cytoscape-dagre": "^2.5.0",
+    "dagre": "^0.8.5",
+    "graphology": "^0.26.0",
+    "graphology-communities-louvain": "^2.0.2",
+    "graphology-layout": "^0.6.1",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "graphology-metrics": "^2.4.0",
+    "graphology-utils": "^2.5.2",
+    "sigma": "^3.0.2"
+  }
+}

@@ -1,0 +1,37 @@
+# Source TypeScript files (but keep webview HTML/JS/CSS)
+src/**/*.ts
+src/**/*.map
+tsconfig.json
+
+# Keep webview assets (needed at runtime)
+!src/webview/**
+
+# Build files
+*.map
+
+# Documentation (keep essential ones)
+COMPOUND_NODES_IMPLEMENTATION.md
+CONTRIBUTING.md
+PHASE1_IMPLEMENTATION.md
+REFACTORING_*.md
+
+# Test files
+.vscode-test/**
+test/**
+
+# MCP server (separate package) - exclude to prevent npm task detection errors
+mcp-server/**
+**/mcp-server/**
+
+# Development files
+.gitignore
+.eslintrc.json
+*.vsix
+
+# Keep essential docs
+!README.md
+!QUICKSTART.md
+!SIGMA_MIGRATION_GUIDE.md
+!CONFIGURATION_GUIDE.md
+!PRODUCTION_FEATURES.md
+!LICENSE
