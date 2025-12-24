@@ -4,6 +4,7 @@
   "description": "AI-powered, multi-layer architecture visualization with real-time task tracking",
   "version": "0.1.1",
   "publisher": "cervyn",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/bilgee0517/cervyn-visualizer.git"
