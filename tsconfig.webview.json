@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2021",
+    "outDir": "out/webview",
+    "rootDir": "src/webview",
+    "lib": ["ES2021", "DOM"],
+    "module": "ES2020",
+    "sourceMap": false,
+    "declaration": false,
+    "removeComments": false,
+    "noEmitOnError": false,
+    "moduleResolution": "node"
+  },
+  "include": [
+    "src/webview/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/*.js"
+  ]
+}
