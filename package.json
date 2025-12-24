@@ -164,7 +164,7 @@
     "@vscode/test-electron": "^2.3.8",
     "eslint": "^8.56.0",
     "typescript": "^5.3.3",
-    "vsce": "^2.15.0"
+    "@vscode/vsce": "^2.15.0"
   },
   "dependencies": {
     "@typescript-eslint/typescript-estree": "^6.15.0",
