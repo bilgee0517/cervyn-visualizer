@@ -30,7 +30,7 @@ An open-source VS Code extension for visualizing codebase architecture through i
 - **Focus Mode**: Isolate specific nodes and their dependencies
 - **Click-to-Navigate**: Jump directly to source files in VS Code
 - **Advanced Filtering**: Filter by complexity, size, coverage, layer, and more
-- **Multiple Layouts**: Semantic, hierarchical, circular, and force-directed layouts
+- **Multiple Layouts**: dagre (hierarchical), concentric (circular), grid, cose (force-directed), and circle layouts
 
 ### Code Analysis
 - **Automatic Discovery**: Analyzes TypeScript and JavaScript projects
@@ -87,10 +87,10 @@ Customize the extension in VS Code Settings:
   "codebaseVisualizer.useSigmaRenderer": true,
   "codebaseVisualizer.enableClustering": true,
   "codebaseVisualizer.showCodeMetrics": true,
-  "codebaseVisualizer.defaultLayout": "semantic",
-  "codebaseVisualizer.defaultLayer": "architecture",
+  "codebaseVisualizer.defaultLayout": "dagre",
+  "codebaseVisualizer.defaultLayer": "implementation",
   "codebaseVisualizer.autoRefresh": true,
-  "codebaseVisualizer.maxNodes": 1000
+  "codebaseVisualizer.maxNodes": 500
 }
 ```
 
@@ -107,7 +107,7 @@ Customize the extension in VS Code Settings:
 
 - **Rendering**: Sigma.js 3.0 (WebGL), Cytoscape.js (fallback)
 - **Graph Processing**: Graphology with Louvain community detection
-- **Layout Algorithms**: ForceAtlas2, Dagre, semantic positioning
+- **Layout Algorithms**: ForceAtlas2, Dagre, Concentric, Grid, Cose, Circle
 - **Code Analysis**: TypeScript/JavaScript AST parsing
 - **Integration**: VS Code Extension API
 

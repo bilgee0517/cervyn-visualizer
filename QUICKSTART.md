@@ -4,11 +4,9 @@
 
 ### 1. Open in VS Code
 ```bash
-cd /path/to/cervyn-visualizer
+cd cervyn-visualizer
 code .
 ```
-
-Replace `/path/to/cervyn-visualizer` with the actual path where you cloned the repository.
 
 ### 2. Install Dependencies
 ```bash
@@ -34,9 +32,11 @@ In the Extension Development Host window, press `Ctrl+Shift+P` (or `Cmd+Shift+P`
    - Implementation (detailed)
    - Dependencies (packages)
 3. **Codebase Visualizer: Change Layout** - Try different layouts:
-   - DAG (hierarchical)
+   - Dagre (hierarchical)
    - Concentric (circular hierarchy)
-   - Force (physics-based)
+   - Grid (structured grid)
+   - Cose (force-directed, physics-based)
+   - Circle (circular arrangement)
 
 ## 📊 What You'll See
 
