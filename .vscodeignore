@@ -28,6 +28,12 @@ mcp-server/**
 .eslintrc.json
 *.vsix
 
+# Environment files (may contain secrets)
+.env
+.env.*
+**/.env
+**/.env.*
+
 # Keep essential docs
 !README.md
 !QUICKSTART.md
