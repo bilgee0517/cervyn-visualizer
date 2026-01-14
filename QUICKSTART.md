@@ -25,18 +25,14 @@ npm run compile
 
 In the Extension Development Host window, press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) and try:
 
-1. **Codebase Visualizer: Show Graph** - Opens the visualization
-2. **Codebase Visualizer: Switch Layer** - Try different layers:
-   - Blueprint (high-level)
-   - Architecture (components)
-   - Implementation (detailed)
-   - Dependencies (packages)
-3. **Codebase Visualizer: Change Layout** - Try different layouts:
-   - Dagre (hierarchical)
-   - Concentric (circular hierarchy)
-   - Grid (structured grid)
-   - Cose (force-directed, physics-based)
-   - Circle (circular arrangement)
+1. **Cervyn Visualizer: Show Graph** - Opens the visualization
+2. **Cervyn Visualizer: Switch Layer** - Try different layers:
+   - Blueprint (high-level directory structure)
+   - Architecture (component relationships)
+   - Implementation (detailed code structure)
+   - Dependencies (package dependencies)
+
+The visualization uses **fCoSE (Fast Compound Spring Embedder)** layout, which automatically arranges nodes with guaranteed no overlaps and optimal spacing.
 
 ## 📊 What You'll See
 
@@ -88,20 +84,19 @@ Edit `src/services/CodeAnalyzer.ts` to:
 ## 🚧 Next Steps
 
 ### Phase 1: Polish MVP
-- [ ] Test with real codebases
-- [ ] Fix any bugs
-- [ ] Improve performance for large projects
+- [x] Test with real codebases
+- [x] Improve performance for large projects
 - [ ] Add better error handling
 
 ### Phase 2: Add Features
-- [ ] Search/filter nodes
-- [ ] Better tooltips with file info
+- [x] Search/filter nodes (via filtering system)
+- [x] Better tooltips with file info
 - [ ] Export to PNG/SVG
-- [ ] Custom node colors
+- [x] Custom node colors (via visual encoding)
 
 ### Phase 3: Advanced Features
 - [ ] Python support
-- [ ] MCP server integration
+- [x] MCP server integration
 - [ ] Task tracker
 - [ ] Team collaboration
 
@@ -117,7 +112,7 @@ When showing this off:
 1. Start with a familiar open-source project
 2. Show the different layers (Blueprint → Implementation)
 3. Demonstrate clicking nodes to navigate
-4. Switch layouts to show flexibility
+4. Show how the fCoSE layout automatically arranges nodes without overlaps
 5. Export the graph as JSON
 
 ## 🐛 Troubleshooting

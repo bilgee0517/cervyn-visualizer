@@ -8,29 +8,14 @@ This MCP server exposes tools that allow AI agents (Claude, GPT, etc.) to progra
 
 ## 🚀 Features
 
-### **Available Tools** (14 total)
+### **Available Tools** (3 tools)
 
-#### **Graph Operations** (6 tools)
-- `addNode` - Add a new node to the graph
-- `addEdge` - Create a connection between nodes
-- `removeNode` - Remove a node and its edges
-- `removeEdge` - Remove a specific edge
-- `getGraph` - Retrieve current graph data
-- `updateNode` - Modify node properties
+#### **Graph Operations**
+- `getGraph` - Retrieve current graph data (nodes and edges)
+- `updateNode` - Modify node properties (label, roleDescription, technology, progressStatus)
+- `updateEdge` - Modify edge properties (label, edgeType, description)
 
-#### **Proposed Changes** (4 tools)
-- `proposeChange` - Propose a change to a node (in-memory)
-- `applyProposedChanges` - Apply all proposed changes
-- `listProposedChanges` - View pending changes
-- `clearProposedChange` - Remove a specific proposal
-
-#### **Layer Management** (2 tools)
-- `setLayer` - Switch between layers (blueprint/architecture/implementation/dependencies)
-- `getCurrentLayer` - Get active layer
-
-#### **Agent Mode** (2 tools)
-- `setAgentOnlyMode` - Toggle filter for AI-added nodes only
-- `getAgentOnlyMode` - Check current mode
+**Note:** Additional tools (addNode, addEdge, proposed changes, layer management) exist in code but are not yet registered. They will be enabled in future releases.
 
 ---
 
@@ -72,41 +57,13 @@ Add the MCP server to your Cursor/Claude Desktop configuration file (`~/.cursor/
 After building and configuring, restart Cursor. Then in a chat with Claude:
 
 ```
-"Add a new node called AuthService to the architecture layer"
+"Get the current graph for the implementation layer"
 ```
 
-Claude will use the `addNode` tool automatically.
+Claude will use the `getGraph` tool automatically.
 
 ### **Example Tool Calls**
 
-#### 1. **Add a Node**
-```json
-{
-  "name": "addNode",
-  "arguments": {
-    "label": "AuthService",
-    "type": "module",
-    "layer": "architecture",
-    "roleDescription": "Handles user authentication",
-    "technology": "Express"
-  }
-}
-```
-
-#### 2. **Propose a Change**
-```json
-{
-  "name": "proposeChange",
-  "arguments": {
-    "nodeId": "node-authservice-123",
-    "changeName": "Add JWT support",
-    "summary": "Implement token-based authentication",
-    "intention": "Security requirement"
-  }
-}
-```
-
-#### 3. **Get Graph**
 ```json
 {
   "name": "getGraph",
@@ -125,6 +82,32 @@ Response:
   "edgeCount": 67,
   "nodes": [...],
   "edges": [...]
+}
+```
+
+#### 2. **Update Node**
+```json
+{
+  "name": "updateNode",
+  "arguments": {
+    "nodeId": "file-src/AuthService.ts",
+    "roleDescription": "Handles user authentication and authorization",
+    "technology": "Express.js",
+    "progressStatus": "in-progress"
+  }
+}
+```
+
+#### 3. **Update Edge**
+```json
+{
+  "name": "updateEdge",
+  "arguments": {
+    "edgeId": "edge-auth-api",
+    "label": "authenticates",
+    "edgeType": "uses",
+    "description": "API uses AuthService for authentication"
+  }
 }
 ```
 
@@ -175,28 +158,26 @@ Then send JSON-RPC messages via stdin.
 
 ### **Typical Claude Conversation**
 
-**User:** "I want to visualize the authentication flow in my app"
+**User:** "Show me the current codebase graph"
 
-**Claude:** "I'll help you create a knowledge graph for authentication. Let me add the key components..."
-
-Claude internally calls:
-```
-1. setLayer("architecture")
-2. addNode("AuthController", ...)
-3. addNode("TokenService", ...)
-4. addEdge("AuthController" -> "TokenService", type="uses")
-5. getGraph() to verify
-```
-
-**User:** "Can you propose changes to add OAuth support?"
-
-**Claude:** "I'll propose those changes..."
+**Claude:** "I'll retrieve the current graph data for you..."
 
 Claude calls:
 ```
-1. proposeChange("TokenService", changeName="Add OAuth", ...)
-2. listProposedChanges() to show you the plan
-3. (After your approval) applyProposedChanges()
+getGraph({ layer: "implementation" })
+```
+
+**User:** "Update the AuthService node to mark it as in-progress"
+
+**Claude:** "I'll update that node for you..."
+
+Claude calls:
+```
+updateNode({
+  nodeId: "file-src/AuthService.ts",
+  progressStatus: "in-progress",
+  roleDescription: "Authentication service implementation"
+})
 ```
 
 ---
@@ -214,8 +195,9 @@ Claude calls:
 - Ensure layer names are valid
 
 ### **Graph State Lost**
-- MCP server is stateless - restarts clear graph
-- For persistence, integrate with VS Code extension (future phase)
+- State is shared via file system (~/.codebase-visualizer/state.json)
+- VS Code extension and MCP server sync state automatically
+- If state seems stale, restart both the extension and MCP server
 
 ---
 
@@ -242,13 +224,16 @@ Or on error:
 
 ## 🔗 Integration with VS Code Extension
 
-**Current:** MCP server runs independently (stateless)
+**Current Implementation:**
+- State synchronization via shared file system (`~/.codebase-visualizer/state.json`)
+- Changes made via MCP server automatically appear in VS Code extension
+- Changes made in VS Code extension are available to MCP server
+- File-based synchronization with version tracking
 
-**Future (Phase 3+):**
-- Share state with VS Code extension via IPC
-- Sync changes to extension's GraphService
-- Persist to Supabase
-- Real-time webview updates
+**Future Enhancements:**
+- Real-time bidirectional sync (via IPC/WebSocket)
+- Enhanced conflict resolution
+- Network-based synchronization for remote collaboration
 
 ---
 

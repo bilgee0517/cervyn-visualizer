@@ -19,7 +19,7 @@ src/webview/
 ├── cytoscape/                   # Cytoscape.js renderer modules
 │   ├── cytoscape-core.ts       # Main coordinator
 │   ├── interaction-handlers.ts # Event handlers
-│   ├── layout-manager.ts       # Layout algorithms
+│   ├── layout-manager.ts       # fCoSE layout algorithm
 │   ├── ui-controller.ts        # UI controls
 │   ├── view-manager.ts         # Visibility management
 │   └── zoom-lod-manager.ts     # Zoom-based level of detail
@@ -88,7 +88,7 @@ See [TESTING.md](../../TESTING.md) for testing guidelines.
 - **shared/state-manager.ts**: Single source of truth for all state
 - **cytoscape/cytoscape-core.ts**: Coordinates all Cytoscape modules
 - **cytoscape/interaction-handlers.ts**: User interaction event handlers
-- **cytoscape/layout-manager.ts**: Graph layout algorithms
+- **cytoscape/layout-manager.ts**: fCoSE layout algorithm (only layout currently supported)
 - **cytoscape/ui-controller.ts**: UI element management
 - **cytoscape/view-manager.ts**: Node visibility and depth management
 - **cytoscape/zoom-lod-manager.ts**: Zoom-based level of detail
