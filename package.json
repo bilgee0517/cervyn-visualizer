@@ -1,6 +1,6 @@
 {
-  "name": "codebase-visualizer",
-  "displayName": "Codebase Visualizer",
+  "name": "cervyn-visualizer",
+  "displayName": "Cervyn Visualizer",
   "description": "AI-powered, multi-layer architecture visualization with real-time task tracking",
   "version": "0.1.1",
   "publisher": "cervyn",
@@ -36,49 +36,49 @@
     "commands": [
       {
         "command": "codebaseVisualizer.showGraph",
-        "title": "Codebase Visualizer: Show Graph",
+        "title": "Cervyn Visualizer: Show Graph",
         "icon": "$(graph)"
       },
       {
         "command": "codebaseVisualizer.refresh",
-        "title": "Codebase Visualizer: Refresh Graph",
+        "title": "Cervyn Visualizer: Refresh Graph",
         "icon": "$(refresh)"
       },
       {
         "command": "codebaseVisualizer.setLayout",
-        "title": "Codebase Visualizer: Change Layout"
+        "title": "Cervyn Visualizer: Change Layout"
       },
       {
         "command": "codebaseVisualizer.setLayer",
-        "title": "Codebase Visualizer: Switch Layer"
+        "title": "Cervyn Visualizer: Switch Layer"
       },
       {
         "command": "codebaseVisualizer.exportGraph",
-        "title": "Codebase Visualizer: Export Graph"
+        "title": "Cervyn Visualizer: Export Graph"
       },
       {
         "command": "codebaseVisualizer.proposeChange",
-        "title": "Codebase Visualizer: Propose Change (AI Agent)"
+        "title": "Cervyn Visualizer: Propose Change (AI Agent)"
       },
       {
         "command": "codebaseVisualizer.applyProposedChanges",
-        "title": "Codebase Visualizer: Apply Proposed Changes"
+        "title": "Cervyn Visualizer: Apply Proposed Changes"
       },
       {
         "command": "codebaseVisualizer.listProposedChanges",
-        "title": "Codebase Visualizer: List Proposed Changes"
+        "title": "Cervyn Visualizer: List Proposed Changes"
       },
       {
         "command": "codebaseVisualizer.clearProposedChanges",
-        "title": "Codebase Visualizer: Clear Proposed Changes"
+        "title": "Cervyn Visualizer: Clear Proposed Changes"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "codebaseVisualizer",
-          "title": "Codebase Visualizer",
-          "icon": "resources/icon.svg"
+          "title": "Cervyn Visualizer",
+          "icon": "$(graph)"
         }
       ]
     },
@@ -92,7 +92,7 @@
       ]
     },
     "configuration": {
-      "title": "Codebase Visualizer",
+      "title": "Cervyn Visualizer",
       "properties": {
         "codebaseVisualizer.defaultLayout": {
           "type": "string",
@@ -115,7 +115,7 @@
             "implementation",
             "dependencies"
           ],
-          "description": "Default visualization layer"
+          "description": "Default visualization layer. Note: Currently only 'implementation' layer is fully developed. Other layers have basic implementations and will be enhanced later."
         },
         "codebaseVisualizer.autoRefresh": {
           "type": "boolean",
@@ -127,11 +127,6 @@
           "default": 500,
           "description": "Maximum number of nodes to display"
         },
-        "codebaseVisualizer.useSigmaRenderer": {
-          "type": "boolean",
-          "default": true,
-          "description": "Use Sigma.js renderer (advanced, high-performance) instead of Cytoscape (experimental - set to true to enable)"
-        },
         "codebaseVisualizer.enableClustering": {
           "type": "boolean",
           "default": true,
@@ -141,6 +136,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show code metrics (complexity, LOC, coverage) in visualization"
+        },
+        "codebaseVisualizer.logLevel": {
+          "type": "string",
+          "default": "info",
+          "enum": ["debug", "info", "warn", "error"],
+          "description": "Logging level: 'debug' (verbose, for troubleshooting), 'info' (normal operation), 'warn' (warnings only), 'error' (errors only). Lower levels improve performance by reducing log output."
         }
       }
     }
@@ -149,35 +150,50 @@
     "vscode:prepublish": "npm run compile",
     "compile": "npm run compile:extension && npm run compile:webview",
     "compile:extension": "tsc -p ./",
-    "compile:webview": "tsc -p tsconfig.webview.json && node scripts/post-build-webview.js",
+    "compile:webview": "node esbuild.config.js",
     "watch": "tsc -watch -p ./",
-    "watch:webview": "tsc -watch -p tsconfig.webview.json",
+    "watch:webview": "node esbuild.config.js watch",
     "pretest": "npm run compile",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
-    "test": "node ./out/test/runTest.js"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:e2e": "node ./out/test/runTest.js"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.1.5",
+    "@types/jest": "^29.5.14",
+    "@types/jsdom": "^21.1.6",
     "@types/node": "^20.10.0",
     "@types/vscode": "1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.15.0",
+    "esbuild": "^0.27.2",
     "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "jsdom": "^23.0.1",
+    "ts-jest": "^29.4.6",
+    "ts-loader": "^9.5.4",
     "typescript": "^5.3.3",
-    "@vscode/vsce": "^2.15.0"
+    "webpack": "^5.104.1",
+    "webpack-cli": "^6.0.1"
   },
   "dependencies": {
     "@typescript-eslint/typescript-estree": "^6.15.0",
     "cytoscape": "^3.28.1",
     "cytoscape-dagre": "^2.5.0",
+    "cytoscape-expand-collapse": "^4.1.0",
+    "cytoscape-fcose": "^2.2.0",
     "dagre": "^0.8.5",
-    "graphology": "^0.26.0",
-    "graphology-communities-louvain": "^2.0.2",
-    "graphology-layout": "^0.6.1",
-    "graphology-layout-forceatlas2": "^0.10.1",
-    "graphology-metrics": "^2.4.0",
-    "graphology-utils": "^2.5.2",
-    "sigma": "^3.0.2"
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-typescript": "^0.23.2",
+    "tree-sitter-python": "^0.21.0",
+    "tree-sitter-go": "^0.21.0",
+    "tree-sitter-java": "^0.21.0",
+    "tree-sitter-rust": "^0.21.0"
   }
 }
