@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}' https://unpkg.com; connect-src https:;">
+    <title>Cervyn Visualizer</title>
+    <link rel="stylesheet" href="{{styleUri}}" nonce="{{nonce}}">
+</head>
+<body>
+    <div class="toolbar">
+        <!-- Layout: fCoSE (Fixed) -->
+        <!-- Using fCoSE layout exclusively - optimized for hierarchical graphs -->
+        
+        <!-- Node Search -->
+        <div class="toolbar-group search-group">
+            <div class="search-container">
+                <input 
+                    type="text" 
+                    id="nodeSearchInput" 
+                    class="search-input" 
+                    placeholder="Search nodes..." 
+                    title="Search for nodes by name, ID, or path"
+                    autocomplete="off"
+                />
+                <button id="clearSearchBtn" class="search-clear-btn" title="Clear search" style="display: none;">✕</button>
+                <div id="searchResults" class="search-results" style="display: none;"></div>
+            </div>
+        </div>
+        
+        <!-- More Options -->
+        <div class="toolbar-group">
+            <button id="moreOptionsBtn" class="icon-btn" title="More options" aria-label="More options">
+                <svg class="icon" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/>
+                </svg>
+            </button>
+            <div id="moreOptionsMenu" class="dropdown-menu">
+                <div class="dropdown-section">
+                    <div class="dropdown-section-title">Color Theme</div>
+                    <div class="color-picker-row">
+                        <label class="color-label">Nodes</label>
+                        <input type="color" id="nodeColorPicker" class="color-input" value="#3B82F6" title="Node base color">
+                    </div>
+                    <div class="color-picker-row">
+                        <label class="color-label">Edges</label>
+                        <input type="color" id="edgeColorPicker" class="color-input" value="#94A3B8" title="Edge base color">
+                    </div>
+                    <button id="resetColorsBtn" class="dropdown-item-small">Reset to Default</button>
+                </div>
+                <div class="dropdown-divider"></div>
+                <button id="showHelpBtn" class="dropdown-item">
+                    <span class="dropdown-label">Show Help</span>
+                </button>
+                <div class="dropdown-divider"></div>
+                <button id="refreshGraphBtn" class="dropdown-item">
+                    <span class="dropdown-label">Refresh Graph</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    <div id="cy"></div>
+    
+    <!-- Bottom Stats -->
+    <div class="bottom-stats">
+        <span id="zoomLevel" class="stat-item">100%</span>
+        <span class="stat-separator">·</span>
+        <span id="nodeCount" class="stat-item">0 nodes</span>
+        <span class="stat-separator">·</span>
+        <span id="edgeCount" class="stat-item">0 edges</span>
+    </div>
+    
+    <!-- Minimap -->
+    <div id="minimap" class="minimap">
+        <canvas id="minimapCanvas"></canvas>
+    </div>
+    <div class="loading" id="loading">Loading graph...</div>
+    <div id="nodeTooltip"></div>
+    
+    <!-- Onboarding overlay -->
+    <div id="onboardingOverlay" style="display: none;">
+        <div id="onboardingCard">
+            <div id="onboardingHeader">
+                <span id="onboardingTitle">Welcome to Cervyn Visualizer! 🎉</span>
+                <button id="onboardingClose" title="Close">✕</button>
+            </div>
+            <div id="onboardingContent">
+                <p id="onboardingMessage">
+                    <strong id="focusFileLabel"></strong>
+                </p>
+                <ul id="onboardingTips">
+                    <li>💡 <strong>Click nodes</strong> to navigate to files</li>
+                    <li>🔍 <strong>Scroll</strong> to zoom in/out</li>
+                    <li>➕ <strong>Click "Expand"</strong> to see more connected files</li>
+                    <li>📏 <strong>Node size</strong> = lines of code</li>
+                    <li>🔴 <strong>Thick borders</strong> = high complexity</li>
+                    <li>🔵 <strong>Cyan glow</strong> = recently changed</li>
+                </ul>
+            </div>
+            <div id="onboardingActions">
+                <button id="onboardingGotIt">Got it!</button>
+                <button id="onboardingTour">Show Full Tour</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 
+        Load external libraries from CDN
+        Note: All dynamic configuration (styles, layout config) is sent via postMessage
+        This follows VS Code webview best practices for security and maintainability
+    -->
+    <script nonce="{{nonce}}">
+        console.log('[HTML] Cytoscape webview initializing...');
+    </script>
+
+    <script nonce="{{nonce}}" src="{{cytoscapeUri}}"></script>
+    <script nonce="{{nonce}}" src="{{dagreUri}}"></script>
+    <script nonce="{{nonce}}" src="{{cytoscapeDagreUri}}"></script>
+    <!-- fCoSE dependencies (order matters) -->
+    <script nonce="{{nonce}}" src="{{layoutBaseUri}}"></script>
+    <script nonce="{{nonce}}" src="{{coseBaseUri}}"></script>
+    <script nonce="{{nonce}}" src="{{cytoscapeFcoseUri}}"></script>
+    <!-- Expand-collapse extension for zoom-based LOD -->
+    <script nonce="{{nonce}}" src="{{cytoscapeExpandCollapseUri}}"></script>
+    <script nonce="{{nonce}}" src="{{mainScriptUri}}"></script>
+</body>
+</html>
