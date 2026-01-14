@@ -1,0 +1,36 @@
+{
+  "name": "codebase-visualizer-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP Server for Codebase Visualizer - AI Agent Integration",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "codebase-visualizer-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "test-sync": "ts-node test-sync.ts"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agent",
+    "knowledge-graph",
+    "codebase-visualization"
+  ],
+  "author": "Cervyn",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "axios": "^1.6.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
+

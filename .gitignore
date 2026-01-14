@@ -42,3 +42,6 @@ coverage/
 # TypeScript build info
 *.tsbuildinfo
 
+# Compiled JavaScript in source directories (should only be in dist/)
+mcp-server/src/**/*.js
+mcp-server/src/**/*.js.map
