@@ -2,7 +2,7 @@
 
 ## 🎯 Mission Statement
 
-Codebase Visualizer aims to be the **open-source alternative to CodeSee** and other proprietary codebase visualization tools. Our goal is to provide developers with powerful, free, and extensible tools to understand and navigate complex codebases.
+**Cervyn Visualizer** aims to be the **open-source alternative to CodeSee** and other proprietary codebase visualization tools. Our goal is to provide developers with powerful, free, and extensible tools to understand and navigate complex codebases.
 
 ## 🌟 Core Principles
 
@@ -14,17 +14,22 @@ Codebase Visualizer aims to be the **open-source alternative to CodeSee** and ot
 
 ## 🚀 Long-Term Vision
 
-### Phase 1: Foundation (Current)
-- ✅ Multi-layer architecture visualization
-- ✅ WebGL-accelerated rendering
-- ✅ Code quality metrics
-- ✅ MCP server for AI integration
+### Phase 1: Foundation (Current) ✅
+- ✅ Implementation layer with full code analysis
+- ✅ TypeScript/JavaScript support via Tree-sitter
+- ✅ fCoSE layout algorithm
+- ✅ MCP server infrastructure
+- ✅ JSON export
+- ⚠️ Basic multi-layer views (others need enhancement)
+- ⚠️ Metrics calculation (not yet visually displayed)
 
-### Phase 2: Intelligence (Next 6 months)
-- [ ] AST-based analysis (100% accurate symbol extraction)
+### Phase 2: Enhancement (Next 6 months)
+- [ ] Complete multi-layer architecture views
+- [ ] Visual code metrics display (color/size encoding)
+- [ ] Enhanced multi-language support (Python, Java, Go, Rust)
+- [ ] Export to PNG/SVG
 - [ ] Call graph analysis
 - [ ] Circular dependency detection
-- [ ] Multi-language support (Python, Java, Go)
 
 ### Phase 3: Collaboration (Future)
 - [ ] Real-time multi-user collaboration
@@ -46,9 +51,9 @@ Codebase Visualizer aims to be the **open-source alternative to CodeSee** and ot
 - Performance by default (no configuration needed)
 
 **Visual Clarity**: Information density without clutter
-- Semantic clustering (group related code)
-- Color-coded metrics (instant health assessment)
+- Semantic clustering (via MCP server)
 - Level of detail (zoom-based information)
+- [Future] Color-coded metrics for instant health assessment
 
 **Developer-Centric**: Built by developers, for developers
 - VS Code native integration
@@ -65,10 +70,10 @@ Codebase Visualizer aims to be the **open-source alternative to CodeSee** and ot
 - ✅ **Extensible** (vs. closed platform)
 
 ### vs. Other Tools
-- ✅ **GPU-accelerated** (vs. CPU-bound)
-- ✅ **AI-powered** (vs. static analysis)
-- ✅ **Real-time updates** (vs. batch processing)
-- ✅ **Multi-layer views** (vs. single perspective)
+- ✅ **High-performance rendering** (vs. CPU-bound)
+- ✅ **AI-powered** (via MCP server)
+- ✅ **Auto-refresh** (vs. manual updates)
+- ⚠️ **Multi-layer views** (implementation complete, others in progress)
 
 ## 🤝 Community Goals
 
