@@ -121,6 +121,8 @@ export class ZoomBasedLODManager {
     private adaptiveZoomEnabled: boolean = true;
     private firstLayoutComplete: boolean = false;
     private incrementalUpdateMode: boolean = false; // Track if we're in incremental update mode
+    private incrementalModeTimeoutGuard: NodeJS.Timeout | null = null; // Safety timeout for stuck incremental mode
+    private readonly INCREMENTAL_MODE_TIMEOUT_MS = 5000; // 5 seconds max for incremental mode
     
     // Fixed dimensions system for compound nodes
     private dimensionCache: Map<string, CompoundDimensions> = new Map();
@@ -485,7 +487,7 @@ export class ZoomBasedLODManager {
      * Uses opacity instead of display to keep nodes in DOM for bounding box calculations
      * Preserves selected state (doesn't override selected styling)
      */
-    private showNodes(nodes: any, immediate: boolean): void {
+    private showNodes(nodes: any, _immediate: boolean): void {
         if (nodes.length === 0) return;
         
         this.logger.debug(`Showing ${nodes.length} nodes`);
@@ -531,7 +533,7 @@ export class ZoomBasedLODManager {
      * This prevents compound nodes from resizing when children are hidden
      * CRITICAL: Selected nodes are never hidden - they are filtered out before calling this method
      */
-    private hideNodes(nodes: any, immediate: boolean): void {
+    private hideNodes(nodes: any, _immediate: boolean): void {
         if (nodes.length === 0) return;
         
         // Double-check: filter out any selected nodes that might have slipped through
@@ -921,6 +923,12 @@ export class ZoomBasedLODManager {
             clearTimeout(this.debounceTimer);
         }
         
+        // Clear incremental mode timeout guard
+        if (this.incrementalModeTimeoutGuard) {
+            clearTimeout(this.incrementalModeTimeoutGuard);
+            this.incrementalModeTimeoutGuard = null;
+        }
+        
         if (this.cy) {
             this.cy.off('zoom');
             this.cy.off('position', 'node'); // Remove position monitoring
@@ -1284,10 +1292,35 @@ export class ZoomBasedLODManager {
      * Set incremental update mode
      * When true, dimension recalculation is skipped during node add/remove operations
      * This prevents webview hanging while maintaining functionality
+     * 
+     * SAFETY: Includes timeout guard to auto-reset if mode gets stuck
      */
     public setIncrementalUpdateMode(enabled: boolean): void {
         this.logger.debug(`Setting incremental update mode: ${enabled}`);
         this.incrementalUpdateMode = enabled;
+        
+        if (enabled) {
+            // Clear any existing guard
+            if (this.incrementalModeTimeoutGuard) {
+                clearTimeout(this.incrementalModeTimeoutGuard);
+            }
+            
+            // Set timeout guard: auto-reset after 5s if still enabled
+            // This prevents the mode from getting stuck during race conditions
+            this.incrementalModeTimeoutGuard = setTimeout(() => {
+                if (this.incrementalUpdateMode) {
+                    this.logger.warn(`Incremental mode stuck for ${this.INCREMENTAL_MODE_TIMEOUT_MS}ms, auto-resetting`);
+                    this.incrementalUpdateMode = false;
+                    this.incrementalModeTimeoutGuard = null;
+                }
+            }, this.INCREMENTAL_MODE_TIMEOUT_MS);
+        } else {
+            // Clear timeout guard when explicitly disabled
+            if (this.incrementalModeTimeoutGuard) {
+                clearTimeout(this.incrementalModeTimeoutGuard);
+                this.incrementalModeTimeoutGuard = null;
+            }
+        }
     }
 
     /**

@@ -2,10 +2,12 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { GraphData, GraphNode, GraphEdge, Layer } from '../types';
-import { log, debug, warn, error, createThrottledLogger } from '../logger';
+import { log, debug, warn, error as logError, createThrottledLogger } from '../logger';
 import { CodeMetricsCalculator } from './CodeMetricsCalculator';
 import { TreeSitterAnalyzer } from './TreeSitterAnalyzer';
 import { initializeDefaultResolvers, getResolverRegistry } from './language-resolvers';
+import { FileSystemError, ParsingError } from '../errors';
+import { handleError, generateCorrelationId } from '../utils/error-handler';
 
 export class CodeAnalyzer {
     private readonly MAX_NODES = 500; // Increased for multi-project workspaces
@@ -500,7 +502,7 @@ export class CodeAnalyzer {
             const relativePath = path.relative(rootPath, currentPath);
             if (!this.shouldAnalyzeFile(relativePath)) {
                 if (entryPointSet.has(currentPath)) {
-                    error(`Entry point filtered out by shouldAnalyzeFile: ${relativePath}`);
+                    logError(`Entry point filtered out by shouldAnalyzeFile: ${relativePath}`);
                 }
                 continue;
             }
@@ -534,8 +536,20 @@ export class CodeAnalyzer {
             try {
                 const content = fs.readFileSync(currentPath, 'utf-8');
                 metrics = this.metricsCalculator.calculateFileMetrics(currentPath, content);
-            } catch (e) {
-                // Failed to read file, use defaults
+            } catch (err) {
+                // Failed to read file, use defaults - log but don't throw
+                const error = new FileSystemError(
+                    `Failed to read file for metrics`,
+                    currentPath,
+                    'read',
+                    { operation: 'calculateMetrics' },
+                    err instanceof Error ? err : undefined
+                );
+                handleError(error, {
+                    operation: 'calculate file metrics',
+                    component: 'CodeAnalyzer',
+                    metadata: { currentPath: path.basename(currentPath) }
+                });
             }
 
             nodes.push({
@@ -600,8 +614,28 @@ export class CodeAnalyzer {
                     nodeCount += symbols.nodes.length;
                 }
 
-            } catch (e) {
-                log(`  ✗ Failed to parse ${path.basename(currentPath)}: ${e}`);
+            } catch (err) {
+                const error = err instanceof Error && err.message.includes('parse')
+                    ? new ParsingError(
+                        `Failed to parse file`,
+                        currentPath,
+                        undefined,
+                        undefined,
+                        { operation: 'buildReachableGraph', nodeCount, depth },
+                        err
+                    )
+                    : new FileSystemError(
+                        `Failed to read file`,
+                        currentPath,
+                        'read',
+                        { operation: 'buildReachableGraph', nodeCount, depth },
+                        err instanceof Error ? err : undefined
+                    );
+                handleError(error, {
+                    operation: 'build reachable graph - parse file',
+                    component: 'CodeAnalyzer',
+                    metadata: { currentPath: path.basename(currentPath), depth, nodeCount }
+                });
             }
         }
 
@@ -672,8 +706,28 @@ export class CodeAnalyzer {
                     }
                 });
             }
-        } catch (error) {
-            console.warn('Failed to read package.json:', error);
+        } catch (err) {
+            const error = err instanceof SyntaxError
+                ? new ParsingError(
+                    `Invalid package.json in dependencies layer`,
+                    path.join(rootPath, 'package.json'),
+                    undefined,
+                    undefined,
+                    { rootPath, layer: 'dependencies' },
+                    err
+                )
+                : new FileSystemError(
+                    `Failed to read package.json`,
+                    path.join(rootPath, 'package.json'),
+                    'read',
+                    { rootPath, layer: 'dependencies' },
+                    err instanceof Error ? err : undefined
+                );
+            handleError(error, {
+                operation: 'generate dependencies layer',
+                component: 'CodeAnalyzer',
+                metadata: { rootPath }
+            });
         }
 
         return { nodes, edges };
@@ -873,8 +927,19 @@ export class CodeAnalyzer {
                     }
                 }
                 log(`📂 Added ${addedToQueue} new files to queue for processing (will be processed after entry points)`);
-            } catch (e) {
-                log(`⚠️  Error scanning for source files: ${e}`);
+            } catch (err) {
+                const error = new FileSystemError(
+                    `Error scanning for source files`,
+                    rootPath,
+                    'read',
+                    { operation: 'discoverSourceDirectories - file scan' },
+                    err instanceof Error ? err : undefined
+                );
+                handleError(error, {
+                    operation: 'discover source directories - file scan',
+                    component: 'CodeAnalyzer',
+                    metadata: { rootPath }
+                });
             }
 
             // Create folder nodes for all discovered directories
@@ -955,8 +1020,19 @@ export class CodeAnalyzer {
             }
 
             log(`✓ Discovered ${allDirectories.size} unique source directories`);
-        } catch (error) {
-            log(`⚠️  Error in discoverSourceDirectories: ${error}`);
+        } catch (err) {
+            const error = new FileSystemError(
+                `Error in discoverSourceDirectories`,
+                rootPath,
+                'read',
+                { operation: 'discoverSourceDirectories' },
+                err instanceof Error ? err : undefined
+            );
+            handleError(error, {
+                operation: 'discover source directories',
+                component: 'CodeAnalyzer',
+                metadata: { rootPath }
+            });
         }
     }
 }

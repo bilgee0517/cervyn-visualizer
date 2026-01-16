@@ -8,6 +8,8 @@ import { log } from '../../logger';
 import { IGraphRenderer } from '../IGraphRenderer';
 import { CYTOSCAPE_STYLES } from '../../config/cytoscape-styles';
 import { getLayoutConfig } from '../../config/layout-config';
+import { WebviewError, FileSystemError } from '../../errors';
+import { handleError, errorBoundary, generateCorrelationId } from '../../utils/error-handler';
 
 /**
  * Cytoscape.js-based graph renderer
@@ -339,8 +341,22 @@ export class CytoscapeRenderer implements IGraphRenderer {
             
             this.graphService.setGraph(updatedGraph, this.currentLayer);
             this.updateWebviewIncremental(updatedGraph, fileGraphData, nodesToRemove);
-        } catch (error) {
-            log(`[CytoscapeRenderer] ERROR during incremental refresh: ${error}`);
+        } catch (err) {
+            const error = new WebviewError(
+                'Failed to perform incremental graph update',
+                'updateGraphIncremental',
+                'extension_to_webview',
+                { 
+                    layer: this.currentLayer,
+                    changedFilePath
+                },
+                err instanceof Error ? err : undefined
+            );
+            handleError(error, {
+                operation: 'incremental graph refresh',
+                component: 'CytoscapeRenderer',
+                metadata: { layer: this.currentLayer, willFallback: true, changedFilePath }
+            });
             // Fall back to full refresh on error
             await this.refresh();
         }

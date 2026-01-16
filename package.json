@@ -140,7 +140,12 @@
         "codebaseVisualizer.logLevel": {
           "type": "string",
           "default": "info",
-          "enum": ["debug", "info", "warn", "error"],
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
           "description": "Logging level: 'debug' (verbose, for troubleshooting), 'info' (normal operation), 'warn' (warnings only), 'error' (errors only). Lower levels improve performance by reducing log output."
         }
       }
@@ -190,10 +195,11 @@
     "cytoscape-fcose": "^2.2.0",
     "dagre": "^0.8.5",
     "tree-sitter": "^0.21.1",
-    "tree-sitter-typescript": "^0.23.2",
-    "tree-sitter-python": "^0.21.0",
     "tree-sitter-go": "^0.21.0",
     "tree-sitter-java": "^0.21.0",
-    "tree-sitter-rust": "^0.21.0"
+    "tree-sitter-python": "^0.21.0",
+    "tree-sitter-rust": "^0.21.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "zod": "^4.3.5"
   }
 }

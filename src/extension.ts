@@ -3,35 +3,41 @@ import { GraphService } from './services/GraphService';
 import { CodeAnalyzer } from './services/CodeAnalyzer';
 import { LayoutType } from './types';
 import { initializeOutputChannel, log, critical, outputChannel } from './logger';
-import { handleError } from './utils/error-handler';
+import { handleError, errorBoundary, generateCorrelationId } from './utils/error-handler';
 import { RendererFactory } from './renderers/RendererFactory';
 import { IGraphRenderer } from './renderers/IGraphRenderer';
+import { ConfigurationError } from './errors';
 
 let rendererFactory: RendererFactory;
 let graphViewProvider: IGraphRenderer;
 
 export function activate(context: vscode.ExtensionContext) {
+    const correlationId = generateCorrelationId();
+    
     try {
         // Initialize output channel first
         initializeOutputChannel();
-        log('Codebase Visualizer extension is now active');
+        log('Codebase Visualizer extension is now active', () => ({ correlationId }));
         if (outputChannel) {
             context.subscriptions.push(outputChannel);
         }
 
-    // Initialize services
-    const graphService = new GraphService(context);
-    const codeAnalyzer = new CodeAnalyzer();
-    
-    log('Services initialized');
+        // Initialize services
+        const graphService = new GraphService(context);
+        const codeAnalyzer = new CodeAnalyzer();
+        
+        log('Services initialized', () => ({ correlationId }));
 
-    // Initialize renderer factory
-    rendererFactory = new RendererFactory(context.extensionUri, graphService, codeAnalyzer);
-    
-    // Get initial renderer (will auto-select based on config)
-    graphViewProvider = rendererFactory.getRenderer();
-    
-    log(`✓ Renderer initialized: ${graphViewProvider.getRendererType().toUpperCase()}`)
+        // Initialize renderer factory
+        rendererFactory = new RendererFactory(context.extensionUri, graphService, codeAnalyzer);
+        
+        // Get initial renderer (will auto-select based on config)
+        graphViewProvider = rendererFactory.getRenderer();
+        
+        log(`✓ Renderer initialized: ${graphViewProvider.getRendererType().toUpperCase()}`, () => ({ 
+            correlationId,
+            rendererType: graphViewProvider.getRendererType()
+        }))
 
     // Register the webview view provider
     context.subscriptions.push(
@@ -55,19 +61,45 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codebaseVisualizer.refresh', async () => {
-            await graphViewProvider.refresh();
-            vscode.window.showInformationMessage('Graph refreshed');
+            const result = await errorBoundary(
+                async () => {
+                    await graphViewProvider.refresh();
+                    vscode.window.showInformationMessage('Graph refreshed');
+                },
+                {
+                    operation: 'refresh graph',
+                    component: 'Extension',
+                    correlationId: generateCorrelationId()
+                }
+            );
+            
+            if (!result.ok) {
+                vscode.window.showErrorMessage(`Failed to refresh graph: ${result.error.message}`);
+            }
         })
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codebaseVisualizer.setLayout', async () => {
-            const layouts = ['fcose', 'swimlane', 'dagre', 'concentric', 'grid', 'cose', 'circle'];
-            const selected = await vscode.window.showQuickPick(layouts, {
-                placeHolder: 'Select a layout algorithm'
-            });
-            if (selected) {
-                graphViewProvider.setLayout(selected as LayoutType);
+            const result = await errorBoundary(
+                async () => {
+                    const layouts = ['fcose', 'swimlane', 'dagre', 'concentric', 'grid', 'cose', 'circle'];
+                    const selected = await vscode.window.showQuickPick(layouts, {
+                        placeHolder: 'Select a layout algorithm'
+                    });
+                    if (selected) {
+                        graphViewProvider.setLayout(selected as LayoutType);
+                    }
+                },
+                {
+                    operation: 'set layout',
+                    component: 'Extension',
+                    correlationId: generateCorrelationId()
+                }
+            );
+            
+            if (!result.ok) {
+                vscode.window.showErrorMessage(`Failed to set layout: ${result.error.message}`);
             }
         })
     );
@@ -94,12 +126,25 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codebaseVisualizer.exportGraph', async () => {
-            const formats = ['JSON', 'PNG (coming soon)', 'SVG (coming soon)'];
-            const selected = await vscode.window.showQuickPick(formats, {
-                placeHolder: 'Select export format'
-            });
-            if (selected === 'JSON') {
-                await graphViewProvider.exportGraph();
+            const result = await errorBoundary(
+                async () => {
+                    const formats = ['JSON', 'PNG (coming soon)', 'SVG (coming soon)'];
+                    const selected = await vscode.window.showQuickPick(formats, {
+                        placeHolder: 'Select export format'
+                    });
+                    if (selected === 'JSON') {
+                        await graphViewProvider.exportGraph();
+                    }
+                },
+                {
+                    operation: 'export graph',
+                    component: 'Extension',
+                    correlationId: generateCorrelationId()
+                }
+            );
+            
+            if (!result.ok) {
+                vscode.window.showErrorMessage(`Failed to export graph: ${result.error.message}`);
             }
         })
     );
@@ -253,7 +298,8 @@ export function activate(context: vscode.ExtensionContext) {
             } catch (err) {
                 handleError(err, {
                     component: 'Extension',
-                    operation: 'refreshGraph'
+                    operation: 'refreshGraph',
+                    correlationId: generateCorrelationId()
                 }, true);
             }
         })
@@ -317,8 +363,25 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('codebaseVisualizer')) {
-                log('[Extension] Configuration changed, reloading renderer factory...');
-                rendererFactory.reloadConfig();
+                const correlationId = generateCorrelationId();
+                log('[Extension] Configuration changed, reloading renderer factory...', () => ({ correlationId }));
+                
+                try {
+                    rendererFactory.reloadConfig();
+                } catch (err) {
+                    const error = new ConfigurationError(
+                        'Failed to reload configuration',
+                        'codebaseVisualizer',
+                        undefined,
+                        { correlationId },
+                        err instanceof Error ? err : undefined
+                    );
+                    handleError(error, {
+                        operation: 'reload configuration',
+                        component: 'Extension',
+                        correlationId
+                    }, true);
+                }
             }
         })
     );
@@ -327,11 +390,12 @@ export function activate(context: vscode.ExtensionContext) {
     // The 'ready' message from webview will trigger initial refresh
     log('[Extension] Waiting for webview to signal ready...');
     
-    log('[Extension] Activation complete!');
+    log('[Extension] Activation complete!', () => ({ correlationId }));
     } catch (err) {
         critical('Extension activation failed', err, () => ({
             component: 'Extension',
-            operation: 'activate'
+            operation: 'activate',
+            correlationId
         }));
         throw err;
     }

@@ -13,6 +13,8 @@ import { BaseLanguageResolver } from './BaseLanguageResolver';
 import { LanguageResolver, ImportInfo, ParserInfo } from './LanguageResolver';
 import { GraphNode, GraphEdge } from '../../types';
 import { log } from '../../logger';
+import { TreeSitterError, FileSystemError, ParsingError } from '../../errors';
+import { handleError } from '../../utils/error-handler';
 
 // Import TypeScript parsers
 // Using require() for tree-sitter modules as they need to be loaded dynamically
@@ -593,8 +595,19 @@ export class TypeScriptResolver extends BaseLanguageResolver implements Language
                     }
                 }
             }
-        } catch (e) {
-            log(`[TypeScriptResolver] Could not scan subdirectories: ${e}`);
+        } catch (err) {
+            const error = new FileSystemError(
+                'Could not scan subdirectories',
+                rootPath,
+                'read',
+                { operation: 'findProjectRoots' },
+                err instanceof Error ? err : undefined
+            );
+            handleError(error, {
+                operation: 'find project roots',
+                component: 'TypeScriptResolver',
+                metadata: { rootPath }
+            });
         }
 
         // 3. Fallback: Look for common entry points
@@ -686,8 +699,28 @@ export class TypeScriptResolver extends BaseLanguageResolver implements Language
                     return fullPath;
                 }
             }
-        } catch (e) {
-            log(`[TypeScriptResolver] Could not read package.json in ${projectPath}: ${e}`);
+        } catch (err) {
+            const error = err instanceof SyntaxError
+                ? new ParsingError(
+                    'Invalid package.json',
+                    path.join(projectPath, 'package.json'),
+                    undefined,
+                    undefined,
+                    { projectPath },
+                    err
+                )
+                : new FileSystemError(
+                    'Could not read package.json',
+                    path.join(projectPath, 'package.json'),
+                    'read',
+                    { projectPath },
+                    err instanceof Error ? err : undefined
+                );
+            handleError(error, {
+                operation: 'get project name',
+                component: 'TypeScriptResolver',
+                metadata: { projectPath }
+            });
         }
         
         return null;

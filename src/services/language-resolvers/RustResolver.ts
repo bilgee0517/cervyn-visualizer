@@ -13,6 +13,8 @@ import { BaseLanguageResolver } from './BaseLanguageResolver';
 import { LanguageResolver, ImportInfo, ParserInfo } from './LanguageResolver';
 import { GraphNode, GraphEdge } from '../../types';
 import { log } from '../../logger';
+import { FileSystemError, ParsingError } from '../../errors';
+import { handleError } from '../../utils/error-handler';
 
 // Import Rust parser
 let Rust: any = null;
@@ -71,8 +73,19 @@ export class RustResolver extends BaseLanguageResolver implements LanguageResolv
                         this.crateName = nameMatch[1];
                         log(`[RustResolver] Found crate name: ${this.crateName}`);
                     }
-                } catch (e) {
-                    log(`[RustResolver] Could not read Cargo.toml: ${e}`);
+                } catch (err) {
+                    const error = new FileSystemError(
+                        'Could not read Cargo.toml',
+                        cargoToml,
+                        'read',
+                        { operation: 'getEntryPoints' },
+                        err instanceof Error ? err : undefined
+                    );
+                    handleError(error, {
+                        operation: 'read Cargo.toml',
+                        component: 'RustResolver',
+                        metadata: { cargoToml }
+                    });
                 }
             }
             
@@ -369,8 +382,20 @@ export class RustResolver extends BaseLanguageResolver implements LanguageResolv
                         log(`[RustResolver] Found binary entry point: ${binPath}`);
                     }
                 }
-            } catch (e) {
-                log(`[RustResolver] Could not parse Cargo.toml: ${e}`);
+            } catch (err) {
+                const error = new ParsingError(
+                    'Could not parse Cargo.toml',
+                    cargoToml,
+                    undefined,
+                    undefined,
+                    { operation: 'findEntryPoints' },
+                    err instanceof Error ? err : undefined
+                );
+                handleError(error, {
+                    operation: 'parse Cargo.toml',
+                    component: 'RustResolver',
+                    metadata: { cargoToml }
+                });
             }
         }
 

@@ -11,6 +11,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+// Import property ownership boundaries from shared config
+// Note: In production, these should be in a shared package or copied between projects
+const EXTENSION_OWNED_PROPERTIES = [
+    'id', 'label', 'type', 'path', 'fileExtension', 'language',
+    'parent', 'isCompound', 'groupType', 'childCount', 'children', 'childNodes',
+    'linesOfCode', 'complexity', 'testCoverage', 'daysSinceLastChange', 'layer',
+    'sizeMultiplier', 'revealThreshold', 'category', 'isEntryPoint',
+    'chunkHash', 'merkleRoot'
+];
+
 export type Layer = 'blueprint' | 'architecture' | 'implementation' | 'dependencies';
 
 export interface GraphNode {
@@ -130,7 +140,21 @@ export class GraphStateManager {
         try {
             if (fs.existsSync(stateFile)) {
                 const fileContent = fs.readFileSync(stateFile, 'utf-8');
-                const sharedState = JSON.parse(fileContent);
+                
+                let sharedState: any;
+                try {
+                    sharedState = JSON.parse(fileContent);
+                } catch (parseError) {
+                    console.error(`[GraphStateManager] Failed to parse state file: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+                    console.error(`[GraphStateManager] File will be recreated on next write`);
+                    return;
+                }
+                
+                // Validate structure before loading
+                if (!sharedState.graphs || typeof sharedState.graphs !== 'object') {
+                    console.error(`[GraphStateManager] Invalid state structure: missing or invalid graphs field`);
+                    return;
+                }
 
                 // Load graphs
                 if (sharedState.graphs) {
@@ -165,6 +189,9 @@ export class GraphStateManager {
                     this.semanticClusteringByLayer = sharedState.semanticClustering;
                 }
 
+                // Note: nodeHistory and deletedNodes are preserved in sync but not actively used by MCP server
+                // They are managed by the VS Code extension
+
                 // Track version
                 if (sharedState.version) {
                     this.stateVersion = sharedState.version;
@@ -172,8 +199,11 @@ export class GraphStateManager {
 
                 console.error(`[GraphStateManager] Loaded shared state version ${this.stateVersion}`);
             }
-        } catch (error) {
-            console.error(`[GraphStateManager] Error loading shared state: ${error}`);
+        } catch (err) {
+            console.error(`[GraphStateManager] Error loading shared state: ${err instanceof Error ? err.message : String(err)}`);
+            if (err instanceof Error && err.stack) {
+                console.error(`[GraphStateManager] Stack: ${err.stack}`);
+            }
         }
     }
 
@@ -191,6 +221,18 @@ export class GraphStateManager {
     private syncToSharedStateImmediate(): void {
         const stateFile = this.getSharedStateFile();
         try {
+            // Read existing state to preserve extension-owned fields
+            let existingState: any = null;
+            if (fs.existsSync(stateFile)) {
+                try {
+                    const fileContent = fs.readFileSync(stateFile, 'utf-8');
+                    existingState = JSON.parse(fileContent);
+                } catch (err) {
+                    console.error(`[GraphStateManager] Could not read existing state: ${err instanceof Error ? err.message : String(err)}`);
+                    console.error(`[GraphStateManager] Will create new state file`);
+                }
+            }
+
             // Convert proposed changes from Map to Array
             const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
             const proposedChangesArray: any = {};
@@ -202,6 +244,30 @@ export class GraphStateManager {
             // Increment version
             this.stateVersion += 1;
 
+            // Preserve extension-owned properties when writing nodes
+            const preservedGraphs: any = {};
+            for (const layer of layers) {
+                preservedGraphs[layer] = {
+                    nodes: this.graphs[layer].nodes.map(node => {
+                        // Find corresponding node in existing state
+                        const existingNode = existingState?.graphs?.[layer]?.nodes?.find(
+                            (n: any) => n.data.id === node.data.id
+                        );
+                        
+                        if (existingNode) {
+                            // Preserve extension-owned properties from existing state
+                            return {
+                                ...node,
+                                data: this.preserveExtensionProperties(existingNode.data, node.data)
+                            };
+                        }
+                        
+                        return node;
+                    }),
+                    edges: this.graphs[layer].edges
+                };
+            }
+
             // Create shared state object
             const sharedState = {
                 version: this.stateVersion,
@@ -209,9 +275,12 @@ export class GraphStateManager {
                 source: 'mcp-server',
                 currentLayer: this.currentLayer,
                 agentOnlyMode: this.agentOnlyMode,
-                graphs: this.graphs,
+                graphs: preservedGraphs,
                 proposedChanges: proposedChangesArray,
-                semanticClustering: this.semanticClusteringByLayer
+                semanticClustering: this.semanticClusteringByLayer,
+                // Preserve extension-managed fields
+                nodeHistory: existingState?.nodeHistory,
+                deletedNodes: existingState?.deletedNodes
             };
 
             // Write atomically (temp file + rename)
@@ -219,10 +288,32 @@ export class GraphStateManager {
             fs.writeFileSync(tempFile, JSON.stringify(sharedState, null, 2), 'utf-8');
             fs.renameSync(tempFile, stateFile);
 
-            console.error(`[GraphStateManager] Synced state version ${this.stateVersion} to file`);
-        } catch (error) {
-            console.error(`[GraphStateManager] Error syncing to shared state: ${error}`);
+            console.error(`[GraphStateManager] Synced state version ${this.stateVersion} (preserved extension properties)`);
+        } catch (err) {
+            console.error(`[GraphStateManager] Error syncing to shared state: ${err instanceof Error ? err.message : String(err)}`);
+            if (err instanceof Error && err.stack) {
+                console.error(`[GraphStateManager] Stack: ${err.stack}`);
+            }
+            // Re-throw as this is critical for MCP operations
+            throw new Error(`Failed to sync state: ${err instanceof Error ? err.message : String(err)}`);
         }
+    }
+
+    /**
+     * Preserve extension-owned properties when merging node data
+     * MCP should only modify MCP-owned properties
+     */
+    private preserveExtensionProperties(existingData: any, newData: any): any {
+        const merged = { ...newData };
+        
+        // Preserve all extension-owned properties from existing data
+        for (const key of EXTENSION_OWNED_PROPERTIES) {
+            if (key in existingData) {
+                merged[key] = existingData[key];
+            }
+        }
+        
+        return merged;
     }
 
     // ============================================================================
@@ -242,12 +333,17 @@ export class GraphStateManager {
     }
 
     public addNode(node: GraphNode, layer?: Layer): void {
+        // Validate node structure
+        if (!node || !node.data || !node.data.id) {
+            throw new Error('Invalid node: must have data.id');
+        }
+        
         const lyr = layer || this.currentLayer;
         const graph = this.graphs[lyr];
         
         // Check if node already exists
         if (graph.nodes.find(n => n.data.id === node.data.id)) {
-            throw new Error(`Node with ID '${node.data.id}' already exists`);
+            throw new Error(`Node with ID '${node.data.id}' already exists in layer '${lyr}'`);
         }
         
         // Mark as agent-added
@@ -255,6 +351,8 @@ export class GraphStateManager {
         
         graph.nodes.push(node);
         this.syncToSharedState();
+        
+        console.error(`[GraphStateManager] Added node '${node.data.id}' to layer '${lyr}'`);
     }
 
     public removeNode(nodeId: string, layer?: Layer): void {
@@ -276,27 +374,46 @@ export class GraphStateManager {
     }
 
     public updateNode(nodeId: string, updates: Partial<GraphNode['data']>, layer?: Layer): void {
+        // Validate inputs
+        if (!nodeId || typeof nodeId !== 'string') {
+            throw new Error('Node ID must be a non-empty string');
+        }
+        
+        if (!updates || typeof updates !== 'object') {
+            throw new Error('Updates must be an object');
+        }
+        
         const lyr = layer || this.currentLayer;
         const graph = this.graphs[lyr];
         
         const node = graph.nodes.find(n => n.data.id === nodeId);
         if (!node) {
-            throw new Error(`Node with ID '${nodeId}' not found`);
+            throw new Error(`Node with ID '${nodeId}' not found in layer '${lyr}' (total nodes: ${graph.nodes.length})`);
         }
         
         // Apply updates
         Object.assign(node.data, updates);
         node.data.modified = true;
         this.syncToSharedState();
+        
+        console.error(`[GraphStateManager] Updated node '${nodeId}' in layer '${lyr}' with ${Object.keys(updates).length} properties`);
     }
 
     public addEdge(edge: GraphEdge, layer?: Layer): void {
+        // Validate edge structure
+        if (!edge || !edge.data) {
+            throw new Error('Invalid edge: must have data');
+        }
+        if (!edge.data.id || !edge.data.source || !edge.data.target) {
+            throw new Error('Invalid edge: must have id, source, and target');
+        }
+        
         const lyr = layer || this.currentLayer;
         const graph = this.graphs[lyr];
         
         // Check if edge already exists
         if (graph.edges.find(e => e.data.id === edge.data.id)) {
-            throw new Error(`Edge with ID '${edge.data.id}' already exists`);
+            throw new Error(`Edge with ID '${edge.data.id}' already exists in layer '${lyr}'`);
         }
         
         // Validate that source and target nodes exist
@@ -304,14 +421,16 @@ export class GraphStateManager {
         const targetExists = graph.nodes.find(n => n.data.id === edge.data.target);
         
         if (!sourceExists) {
-            throw new Error(`Source node '${edge.data.source}' does not exist`);
+            throw new Error(`Source node '${edge.data.source}' does not exist (${graph.nodes.length} nodes in layer '${lyr}')`);
         }
         if (!targetExists) {
-            throw new Error(`Target node '${edge.data.target}' does not exist`);
+            throw new Error(`Target node '${edge.data.target}' does not exist (${graph.nodes.length} nodes in layer '${lyr}')`);
         }
         
         graph.edges.push(edge);
         this.syncToSharedState();
+        
+        console.error(`[GraphStateManager] Added edge '${edge.data.id}' (${edge.data.source} -> ${edge.data.target}) to layer '${lyr}'`);
     }
 
     public removeEdge(edgeId: string, layer?: Layer): void {
@@ -328,17 +447,28 @@ export class GraphStateManager {
     }
 
     public updateEdge(edgeId: string, updates: Partial<GraphEdge['data']>, layer?: Layer): void {
+        // Validate inputs
+        if (!edgeId || typeof edgeId !== 'string') {
+            throw new Error('Edge ID must be a non-empty string');
+        }
+        
+        if (!updates || typeof updates !== 'object') {
+            throw new Error('Updates must be an object');
+        }
+        
         const lyr = layer || this.currentLayer;
         const graph = this.graphs[lyr];
         
         const edge = graph.edges.find(e => e.data.id === edgeId);
         if (!edge) {
-            throw new Error(`Edge with ID '${edgeId}' not found`);
+            throw new Error(`Edge with ID '${edgeId}' not found in layer '${lyr}' (total edges: ${graph.edges.length})`);
         }
         
         // Apply updates
         Object.assign(edge.data, updates);
         this.syncToSharedState();
+        
+        console.error(`[GraphStateManager] Updated edge '${edgeId}' in layer '${lyr}' with ${Object.keys(updates).length} properties`);
     }
 
     // ============================================================================
