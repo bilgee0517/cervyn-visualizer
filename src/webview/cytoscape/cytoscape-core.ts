@@ -1060,6 +1060,24 @@ export class CytoscapeCore {
     }
     
     /**
+     * Cancel all pending operations
+     * Production-grade safety method that ensures clean slate for new updates
+     */
+    private cancelAllPendingOperations(): void {
+        // Cancel all pending timeouts
+        this.cancelPendingTimeouts();
+        
+        // Force reset incremental mode if stuck
+        if (this.zoomLODManager && this.zoomLODManager.isInitialized()) {
+            if (this.zoomLODManager.isIncrementalUpdateMode()) {
+                logMessage(this.vscode, '[CytoscapeCore] Force resetting stuck incremental mode');
+                this.zoomLODManager.setIncrementalUpdateMode(false);
+                this.incrementalModeUpdateId = -1;
+            }
+        }
+    }
+    
+    /**
      * Cancel all pending timeouts
      * Called when a new update starts to prevent old timeouts from interfering
      */
@@ -1079,6 +1097,7 @@ export class CytoscapeCore {
      * Called when a full update occurs or when we need to reset state
      * 
      * PRODUCTION-GRADE: Always resets incremental mode to prevent it from getting stuck
+     * PRODUCTION-GRADE: Cancels all pending operations for clean slate
      */
     private clearIncrementalUpdateQueue(): void {
         const queueSize = this.incrementalUpdateQueue.length;
@@ -1087,18 +1106,8 @@ export class CytoscapeCore {
             this.incrementalUpdateQueue = [];
         }
         
-        // Cancel all pending timeouts
-        this.cancelPendingTimeouts();
-        
-        // PRODUCTION-GRADE: Always reset incremental mode when clearing queue
-        // This prevents the flag from getting stuck after a full update
-        if (this.zoomLODManager && this.zoomLODManager.isInitialized()) {
-            if (this.zoomLODManager.isIncrementalUpdateMode()) {
-                logMessage(this.vscode, `[CytoscapeCore] [SAFETY] Resetting incremental mode when clearing queue`);
-                this.zoomLODManager.setIncrementalUpdateMode(false);
-            }
-            this.incrementalModeUpdateId = -1;
-        }
+        // Cancel all pending operations
+        this.cancelAllPendingOperations();
         
         // Reset processing flag
         if (this.isProcessingIncrementalUpdate) {

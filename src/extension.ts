@@ -3,35 +3,51 @@ import { GraphService } from './services/GraphService';
 import { CodeAnalyzer } from './services/CodeAnalyzer';
 import { LayoutType } from './types';
 import { initializeOutputChannel, log, critical, outputChannel } from './logger';
-import { handleError } from './utils/error-handler';
+import { handleError, errorBoundary, generateCorrelationId } from './utils/error-handler';
 import { RendererFactory } from './renderers/RendererFactory';
 import { IGraphRenderer } from './renderers/IGraphRenderer';
+import { ConfigurationError } from './errors';
+import { stateBackupService } from './services/StateBackupService';
 
 let rendererFactory: RendererFactory;
 let graphViewProvider: IGraphRenderer;
 
 export function activate(context: vscode.ExtensionContext) {
+    const correlationId = generateCorrelationId();
+    
     try {
         // Initialize output channel first
         initializeOutputChannel();
-        log('Codebase Visualizer extension is now active');
+        log('Codebase Visualizer extension is now active', () => ({ correlationId }));
         if (outputChannel) {
             context.subscriptions.push(outputChannel);
         }
 
-    // Initialize services
-    const graphService = new GraphService(context);
-    const codeAnalyzer = new CodeAnalyzer();
-    
-    log('Services initialized');
+        // Initialize services
+        const graphService = new GraphService(context);
+        const codeAnalyzer = new CodeAnalyzer();
+        
+        log('Services initialized', () => ({ correlationId }));
+        
+        // Reconcile state with file system on startup (prune orphaned entries)
+        graphService.reconcileStateWithFilesystem().catch(err => {
+            handleError(err, {
+                component: 'Extension',
+                operation: 'reconcileStateWithFilesystem',
+                correlationId: generateCorrelationId()
+            });
+        });
 
-    // Initialize renderer factory
-    rendererFactory = new RendererFactory(context.extensionUri, graphService, codeAnalyzer);
-    
-    // Get initial renderer (will auto-select based on config)
-    graphViewProvider = rendererFactory.getRenderer();
-    
-    log(`✓ Renderer initialized: ${graphViewProvider.getRendererType().toUpperCase()}`)
+        // Initialize renderer factory with extension context for state persistence
+        rendererFactory = new RendererFactory(context.extensionUri, graphService, codeAnalyzer, context);
+        
+        // Get initial renderer (will auto-select based on config)
+        graphViewProvider = rendererFactory.getRenderer();
+        
+        log(`✓ Renderer initialized: ${graphViewProvider.getRendererType().toUpperCase()}`, () => ({ 
+            correlationId,
+            rendererType: graphViewProvider.getRendererType()
+        }))
 
     // Register the webview view provider
     context.subscriptions.push(
@@ -55,19 +71,45 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codebaseVisualizer.refresh', async () => {
-            await graphViewProvider.refresh();
-            vscode.window.showInformationMessage('Graph refreshed');
+            const result = await errorBoundary(
+                async () => {
+                    await graphViewProvider.refresh();
+                    vscode.window.showInformationMessage('Graph refreshed');
+                },
+                {
+                    operation: 'refresh graph',
+                    component: 'Extension',
+                    correlationId: generateCorrelationId()
+                }
+            );
+            
+            if (!result.ok) {
+                vscode.window.showErrorMessage(`Failed to refresh graph: ${result.error.message}`);
+            }
         })
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codebaseVisualizer.setLayout', async () => {
-            const layouts = ['fcose', 'swimlane', 'dagre', 'concentric', 'grid', 'cose', 'circle'];
-            const selected = await vscode.window.showQuickPick(layouts, {
-                placeHolder: 'Select a layout algorithm'
-            });
-            if (selected) {
-                graphViewProvider.setLayout(selected as LayoutType);
+            const result = await errorBoundary(
+                async () => {
+                    const layouts = ['fcose', 'swimlane', 'dagre', 'concentric', 'grid', 'cose', 'circle'];
+                    const selected = await vscode.window.showQuickPick(layouts, {
+                        placeHolder: 'Select a layout algorithm'
+                    });
+                    if (selected) {
+                        graphViewProvider.setLayout(selected as LayoutType);
+                    }
+                },
+                {
+                    operation: 'set layout',
+                    component: 'Extension',
+                    correlationId: generateCorrelationId()
+                }
+            );
+            
+            if (!result.ok) {
+                vscode.window.showErrorMessage(`Failed to set layout: ${result.error.message}`);
             }
         })
     );
@@ -94,12 +136,25 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codebaseVisualizer.exportGraph', async () => {
-            const formats = ['JSON', 'PNG (coming soon)', 'SVG (coming soon)'];
-            const selected = await vscode.window.showQuickPick(formats, {
-                placeHolder: 'Select export format'
-            });
-            if (selected === 'JSON') {
-                await graphViewProvider.exportGraph();
+            const result = await errorBoundary(
+                async () => {
+                    const formats = ['JSON', 'PNG (coming soon)', 'SVG (coming soon)'];
+                    const selected = await vscode.window.showQuickPick(formats, {
+                        placeHolder: 'Select export format'
+                    });
+                    if (selected === 'JSON') {
+                        await graphViewProvider.exportGraph();
+                    }
+                },
+                {
+                    operation: 'export graph',
+                    component: 'Extension',
+                    correlationId: generateCorrelationId()
+                }
+            );
+            
+            if (!result.ok) {
+                vscode.window.showErrorMessage(`Failed to export graph: ${result.error.message}`);
             }
         })
     );
@@ -253,8 +308,73 @@ export function activate(context: vscode.ExtensionContext) {
             } catch (err) {
                 handleError(err, {
                     component: 'Extension',
-                    operation: 'refreshGraph'
+                    operation: 'refreshGraph',
+                    correlationId: generateCorrelationId()
                 }, true);
+            }
+        })
+    );
+
+    // Recovery command for restoring state from backups
+    context.subscriptions.push(
+        vscode.commands.registerCommand('codebaseVisualizer.recoverState', async () => {
+            log('[Extension] recoverState command called');
+            try {
+                const backups = await stateBackupService.listBackups();
+                
+                if (backups.length === 0) {
+                    vscode.window.showInformationMessage('No backups available');
+                    return;
+                }
+                
+                // Show backup list as quick pick
+                const items = backups.map(backup => ({
+                    label: backup.filename,
+                    description: `${(backup.size / 1024).toFixed(2)} KB`,
+                    detail: `Created: ${backup.timestamp.toLocaleString()}`,
+                    backup: backup
+                }));
+                
+                const selected = await vscode.window.showQuickPick(items, {
+                    placeHolder: `Select a backup to restore (${backups.length} available)`,
+                    canPickMany: false
+                });
+                
+                if (!selected) {
+                    return; // User cancelled
+                }
+                
+                // Confirm restoration
+                const confirm = await vscode.window.showWarningMessage(
+                    `Restore state from backup: ${selected.label}?\n\nThis will replace the current state. A safety backup will be created.`,
+                    { modal: true },
+                    'Restore', 'Cancel'
+                );
+                
+                if (confirm !== 'Restore') {
+                    return;
+                }
+                
+                // Restore the backup
+                await stateBackupService.restoreBackup(selected.backup.fullPath);
+                
+                vscode.window.showInformationMessage(
+                    `State restored from backup: ${selected.label}. Reloading...`
+                );
+                
+                // Refresh the graph view to show restored state
+                await graphViewProvider.refresh();
+                
+                log('[Extension] State recovered successfully');
+            } catch (err) {
+                handleError(err, {
+                    component: 'Extension',
+                    operation: 'recoverState',
+                    correlationId: generateCorrelationId()
+                }, true);
+                vscode.window.showErrorMessage(
+                    `Failed to recover state: ${err instanceof Error ? err.message : String(err)}`
+                );
             }
         })
     );
@@ -268,7 +388,7 @@ export function activate(context: vscode.ExtensionContext) {
         let fileChangeDebounceTimer: NodeJS.Timeout | undefined;
         const pendingFileChanges = new Set<string>(); // Track which files changed
         
-        const handleFileChange = async (uri: vscode.Uri) => {
+        const handleFileChange = async (uri: vscode.Uri, eventType: 'change' | 'create' | 'delete') => {
             const filePath = uri.fsPath;
             pendingFileChanges.add(filePath);
             
@@ -283,7 +403,7 @@ export function activate(context: vscode.ExtensionContext) {
                 pendingFileChanges.clear();
                 fileChangeDebounceTimer = undefined;
                 
-                log(`[Extension] Processing ${filesToProcess.length} file change(s) after debounce`);
+                log(`[Extension] Processing ${filesToProcess.length} file change(s) after debounce (event: ${eventType})`);
                 
                 // Process the most recent file (or all if needed)
                 // For now, process the last changed file to avoid multiple analyses
@@ -291,6 +411,7 @@ export function activate(context: vscode.ExtensionContext) {
                 
                 try {
                     // Use incremental update if file path is available
+                    // refreshIncremental will detect if file doesn't exist and call removeNodesForFile
                     await graphViewProvider.refresh(fileToProcess);
                 } catch (error) {
                     log(`[Extension] Error processing file change: ${error}`);
@@ -298,9 +419,9 @@ export function activate(context: vscode.ExtensionContext) {
             }, 500); // 500ms debounce
         };
         
-        watcher.onDidChange(handleFileChange);
-        watcher.onDidCreate(handleFileChange);
-        watcher.onDidDelete(handleFileChange);
+        watcher.onDidChange((uri) => handleFileChange(uri, 'change'));
+        watcher.onDidCreate((uri) => handleFileChange(uri, 'create'));
+        watcher.onDidDelete((uri) => handleFileChange(uri, 'delete'));
         context.subscriptions.push(watcher);
         
         // Cleanup timer on deactivation
@@ -317,8 +438,25 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('codebaseVisualizer')) {
-                log('[Extension] Configuration changed, reloading renderer factory...');
-                rendererFactory.reloadConfig();
+                const correlationId = generateCorrelationId();
+                log('[Extension] Configuration changed, reloading renderer factory...', () => ({ correlationId }));
+                
+                try {
+                    rendererFactory.reloadConfig();
+                } catch (err) {
+                    const error = new ConfigurationError(
+                        'Failed to reload configuration',
+                        'codebaseVisualizer',
+                        undefined,
+                        { correlationId },
+                        err instanceof Error ? err : undefined
+                    );
+                    handleError(error, {
+                        operation: 'reload configuration',
+                        component: 'Extension',
+                        correlationId
+                    }, true);
+                }
             }
         })
     );
@@ -327,11 +465,12 @@ export function activate(context: vscode.ExtensionContext) {
     // The 'ready' message from webview will trigger initial refresh
     log('[Extension] Waiting for webview to signal ready...');
     
-    log('[Extension] Activation complete!');
+    log('[Extension] Activation complete!', () => ({ correlationId }));
     } catch (err) {
         critical('Extension activation failed', err, () => ({
             component: 'Extension',
-            operation: 'activate'
+            operation: 'activate',
+            correlationId
         }));
         throw err;
     }

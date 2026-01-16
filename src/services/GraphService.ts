@@ -2,11 +2,23 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { GraphData, GraphNode, GraphEdge, Layer, ProposedChange, NodeHistoryEvent } from '../types';
 import { StateSyncService } from './StateSyncService';
-import { log, debug, warn, error } from '../logger';
-import { getSharedStateFile, createEmptySharedState } from '../config/shared-state-config';
+import { log, debug, error as logError } from '../logger';
+import { getSharedStateFile, createEmptySharedState, MCP_OWNED_PROPERTIES, SharedGraphState } from '../config/shared-state-config';
+import { 
+    GraphStateError, 
+    ValidationError, 
+    FileSystemError 
+} from '../errors';
+import { Result, Ok, Err } from '../types/result';
+import { 
+    handleError, 
+    generateCorrelationId 
+} from '../utils/error-handler';
+import { conflictResolutionService } from './ConflictResolutionService';
 
 export class GraphService {
     private stateSyncService: StateSyncService;
+    private lastSyncedState: SharedGraphState | null = null; // For three-way merge
     private onGraphChangedEmitter = new vscode.EventEmitter<void>();
     public readonly onGraphChanged = this.onGraphChangedEmitter.event;
     
@@ -40,7 +52,6 @@ export class GraphService {
     };
 
     private currentLayer: Layer = 'implementation';
-    private isApplyingExternalChange: boolean = false; // Prevent syncing back during external change
     private graphChangeBatchTimer?: NodeJS.Timeout; // Batch multiple graph change events
 
     // Proposed changes storage (per-layer) - in-memory until applied
@@ -71,6 +82,9 @@ export class GraphService {
         // Initialize state sync service
         this.stateSyncService = new StateSyncService();
         
+        // Migrate from globalState to shared file (one-time migration)
+        this.migrateFromGlobalState();
+        
         // Load from shared state file (synced with MCP server)
         this.loadFromSharedState();
         
@@ -80,11 +94,6 @@ export class GraphService {
             log('[GraphService] External state change detected, updating...');
             this.handleExternalStateChange(sharedState);
         });
-        
-        // Legacy storage (will be deprecated in favor of shared state)
-        this.loadProposedChangesFromStorage();
-        this.loadNodeHistoryFromStorage();
-        this.loadDeletedNodesFromStorage();
     }
 
     public setCurrentLayer(layer: Layer): void {
@@ -101,12 +110,7 @@ export class GraphService {
 
     public setGraph(graphData: GraphData, layer?: Layer): void {
         this.graphs[layer || this.currentLayer] = graphData;
-        this.saveToStorage();
-        
-        // Don't sync back if we're applying an external change to prevent feedback loop
-        if (!this.isApplyingExternalChange) {
-            this.syncToSharedState();
-        }
+        this.syncToSharedState();
     }
 
     public clearGraph(layer?: Layer): void {
@@ -121,7 +125,7 @@ export class GraphService {
                 dependencies: { nodes: [], edges: [] }
             };
         }
-        this.saveToStorage();
+        this.syncToSharedState();
     }
 
     /**
@@ -150,13 +154,7 @@ export class GraphService {
             details: `Updated node properties: ${Object.keys(updates).join(', ')}`
         });
         
-        // Save and sync
-        this.saveToStorage();
-        
-        // Don't sync back if we're applying an external change to prevent feedback loop
-        if (!this.isApplyingExternalChange) {
-            this.syncToSharedState();
-        }
+        this.syncToSharedState();
         
         // Fire graph changed event
         this.onGraphChangedEmitter.fire();
@@ -180,13 +178,7 @@ export class GraphService {
         // Apply updates
         Object.assign(edge.data, updates);
         
-        // Save and sync
-        this.saveToStorage();
-        
-        // Don't sync back if we're applying an external change to prevent feedback loop
-        if (!this.isApplyingExternalChange) {
-            this.syncToSharedState();
-        }
+        this.syncToSharedState();
         
         // Fire edge property changed event (property-only update, no full refresh)
         const edgeUpdates = new Map<string, Partial<GraphEdge['data']>>();
@@ -194,15 +186,152 @@ export class GraphService {
         this.onEdgePropertiesChangedEmitter.fire({ layer: lyr, edgeUpdates });
     }
 
-    private loadFromStorage(): void {
-        const stored = this.context.globalState.get<Record<Layer, GraphData>>('graphData');
-        if (stored) {
-            this.graphs = stored;
+    // ============================================================================
+    // MIGRATION FROM GLOBALSTATE TO SHARED FILE (One-time migration)
+    // ============================================================================
+
+    /**
+     * Migrate data from VS Code globalState to shared file system
+     * This is a one-time migration that runs on first load after update
+     */
+    private migrateFromGlobalState(): void {
+        const migrationKey = 'codebaseVisualizer.migratedToSharedFile';
+        const hasMigrated = this.context.globalState.get<boolean>(migrationKey);
+        
+        if (hasMigrated) {
+            debug('[GraphService] Migration already completed, skipping');
+            return;
+        }
+
+        log('[GraphService] Starting migration from globalState to shared file...');
+        
+        try {
+            const sharedState = this.stateSyncService.readState() || createEmptySharedState();
+            let hasDataToMigrate = false;
+
+            // Migrate graph data
+            const storedGraphs = this.context.globalState.get<Record<Layer, GraphData>>('graphData');
+            if (storedGraphs) {
+                log('[GraphService] Migrating graph data...');
+                sharedState.graphs = storedGraphs;
+                hasDataToMigrate = true;
+            }
+
+            // Migrate proposed changes
+            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+            for (const layer of layers) {
+                const key = `proposedChanges-${layer}`;
+                const stored = this.context.globalState.get<Record<string, ProposedChange>>(key);
+                if (stored && Object.keys(stored).length > 0) {
+                    log(`[GraphService] Migrating ${Object.keys(stored).length} proposed changes for ${layer} layer...`);
+                    // Filter out changes without nodeId and ensure nodeId is set
+                    sharedState.proposedChanges[layer] = Object.values(stored)
+                        .filter(change => change.nodeId)
+                        .map(change => ({ ...change, nodeId: change.nodeId! }));
+                    hasDataToMigrate = true;
+                }
+            }
+
+            // Migrate node history
+            if (!sharedState.nodeHistory) {
+                sharedState.nodeHistory = {
+                    blueprint: {},
+                    architecture: {},
+                    implementation: {},
+                    dependencies: {}
+                };
+            }
+            for (const layer of layers) {
+                const key = `nodeHistory-${layer}`;
+                const stored = this.context.globalState.get<Record<string, NodeHistoryEvent[]>>(key);
+                if (stored && Object.keys(stored).length > 0) {
+                    log(`[GraphService] Migrating node history for ${layer} layer...`);
+                    sharedState.nodeHistory[layer] = stored;
+                    hasDataToMigrate = true;
+                }
+            }
+
+            // Migrate deleted nodes
+            if (!sharedState.deletedNodes) {
+                sharedState.deletedNodes = {
+                    blueprint: [],
+                    architecture: [],
+                    implementation: [],
+                    dependencies: []
+                };
+            }
+            for (const layer of layers) {
+                const key = `deletedNodes-${layer}`;
+                const stored = this.context.globalState.get<string[]>(key);
+                if (stored && stored.length > 0) {
+                    log(`[GraphService] Migrating ${stored.length} deleted nodes for ${layer} layer...`);
+                    sharedState.deletedNodes[layer] = stored;
+                    hasDataToMigrate = true;
+                }
+            }
+
+            // Write migrated data to shared file
+            if (hasDataToMigrate) {
+                this.stateSyncService.writeStateImmediate(sharedState);
+                log('[GraphService] ✓ Migration completed successfully');
+            } else {
+                log('[GraphService] No data to migrate');
+            }
+
+            // Mark migration as complete
+            this.context.globalState.update(migrationKey, true);
+            
+            // Optionally clear old globalState data (commented out for safety - uncomment after verifying migration works)
+            // this.clearGlobalStateData();
+            
+        } catch (err) {
+            const migrationError = new GraphStateError(
+                'Failed to migrate from globalState to shared file',
+                'load',
+                { operation: 'migration' },
+                err instanceof Error ? err : undefined
+            );
+            handleError(migrationError, {
+                operation: 'migrateFromGlobalState',
+                component: 'GraphService',
+                metadata: { canRetry: true }
+            }, true);
+            // Don't mark as migrated if there was an error, so it can retry
         }
     }
 
-    private saveToStorage(): void {
-        this.context.globalState.update('graphData', this.graphs);
+    /**
+     * Clear old globalState data after successful migration
+     * This is called after verifying migration works correctly
+     */
+    private async clearGlobalStateData(): Promise<void> {
+        log('[GraphService] Clearing old globalState data...');
+        try {
+            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+            
+            // Clear graph data
+            await this.context.globalState.update('graphData', undefined);
+            
+            // Clear proposed changes
+            for (const layer of layers) {
+                await this.context.globalState.update(`proposedChanges-${layer}`, undefined);
+                await this.context.globalState.update(`nodeHistory-${layer}`, undefined);
+                await this.context.globalState.update(`deletedNodes-${layer}`, undefined);
+            }
+            
+            log('[GraphService] ✓ Cleared old globalState data');
+        } catch (err) {
+            const clearError = new GraphStateError(
+                'Failed to clear old globalState data',
+                'save',
+                { operation: 'clearGlobalStateData' },
+                err instanceof Error ? err : undefined
+            );
+            handleError(clearError, {
+                operation: 'clearGlobalStateData',
+                component: 'GraphService'
+            });
+        }
     }
 
     // ============================================================================
@@ -227,7 +356,7 @@ export class GraphService {
             timestamp: Date.now()
         };
         this.proposedChangesByLayer[lyr].set(nodeId, merged);
-        this.saveProposedChangesToStorage();
+        this.syncToSharedState();
     }
 
     /**
@@ -274,7 +403,7 @@ export class GraphService {
         const lyr = layer || this.currentLayer;
         if (this.proposedChangesByLayer[lyr].has(nodeId)) {
             this.proposedChangesByLayer[lyr].delete(nodeId);
-            this.saveProposedChangesToStorage();
+            this.syncToSharedState();
         }
     }
 
@@ -284,7 +413,7 @@ export class GraphService {
     public clearAllProposedChanges(layer?: Layer): void {
         const lyr = layer || this.currentLayer;
         this.proposedChangesByLayer[lyr].clear();
-        this.saveProposedChangesToStorage();
+        this.syncToSharedState();
     }
 
     /**
@@ -335,8 +464,7 @@ export class GraphService {
 
         // Clear proposals after application
         this.proposedChangesByLayer[lyr].clear();
-        this.saveToStorage();
-        this.saveProposedChangesToStorage();
+        this.syncToSharedState();
 
         return { appliedCount, notFoundCount };
     }
@@ -360,7 +488,7 @@ export class GraphService {
         const history = this.nodeHistoryByLayer[layer].get(nodeId) || [];
         history.push(event);
         this.nodeHistoryByLayer[layer].set(nodeId, history);
-        this.saveNodeHistoryToStorage();
+        this.syncToSharedState();
     }
 
     /**
@@ -369,7 +497,7 @@ export class GraphService {
     public clearNodeHistory(nodeId: string, layer?: Layer): void {
         const lyr = layer || this.currentLayer;
         this.nodeHistoryByLayer[lyr].delete(nodeId);
-        this.saveNodeHistoryToStorage();
+        this.syncToSharedState();
     }
 
     // ============================================================================
@@ -389,102 +517,169 @@ export class GraphService {
      */
     private markNodeAsDeleted(nodeId: string, layer: Layer): void {
         this.deletedNodeIds[layer].add(nodeId);
-        this.saveDeletedNodesToStorage();
+        this.syncToSharedState();
     }
 
-    // ============================================================================
-    // STORAGE HELPERS
-    // ============================================================================
+    /**
+     * Remove all nodes for a deleted file and mark them as deleted
+     * This ensures orphaned entries are cleaned up when files are deleted
+     */
+    public removeNodesForFile(filePath: string, layer?: Layer): void {
+        const lyr = layer || this.currentLayer;
+        const graph = this.graphs[lyr];
+        
+        log(`[GraphService] Removing nodes for deleted file: ${filePath}`);
+        
+        // Find all nodes related to this file (file node + its children like classes/functions)
+        const nodesToRemove = graph.nodes.filter(n => n.data.path === filePath);
+        
+        if (nodesToRemove.length === 0) {
+            debug(`[GraphService] No nodes found for file: ${filePath}`);
+            return;
+        }
+        
+        const nodeIdsToRemove = new Set(nodesToRemove.map(n => n.data.id));
+        
+        // Also find child nodes (nodes that have one of the file nodes as parent)
+        const fileNodeIds = new Set(nodesToRemove.filter(n => n.data.type === 'file').map(n => n.data.id));
+        const childNodes = graph.nodes.filter(n => n.data.parent && fileNodeIds.has(n.data.parent));
+        for (const childNode of childNodes) {
+            nodeIdsToRemove.add(childNode.data.id);
+        }
+        
+        // Remove edges connected to removed nodes
+        const edgesToRemove = graph.edges.filter(e => 
+            nodeIdsToRemove.has(e.data.source) || nodeIdsToRemove.has(e.data.target)
+        );
+        
+        log(`[GraphService] Removing ${nodeIdsToRemove.size} nodes and ${edgesToRemove.length} edges for file: ${filePath}`);
+        
+        // Mark nodes as deleted
+        for (const nodeId of nodeIdsToRemove) {
+            this.markNodeAsDeleted(nodeId, lyr);
+        }
+        
+        // Remove from in-memory graph
+        graph.nodes = graph.nodes.filter(n => !nodeIdsToRemove.has(n.data.id));
+        graph.edges = graph.edges.filter(e => {
+            const edgeId = e.data.id;
+            return !edgesToRemove.some(removed => removed.data.id === edgeId);
+        });
+        
+        // Record in history for each removed node
+        for (const nodeId of nodeIdsToRemove) {
+            this.recordNodeHistory(lyr, nodeId, {
+                timestamp: Date.now(),
+                action: 'deleted',
+                details: `File deleted: ${filePath}`
+            });
+        }
+        
+        // Sync to shared state
+        this.syncToSharedState();
+        
+        // Fire incremental change event
+        this.onGraphChangedIncrementalEmitter.fire({
+            layer: lyr,
+            addedNodes: [],
+            addedEdges: [],
+            removedNodeIds: Array.from(nodeIdsToRemove),
+            removedEdgeIds: edgesToRemove.map(e => e.data.id),
+            fullGraph: graph
+        });
+        
+        log(`[GraphService] ✓ Removed nodes for deleted file: ${filePath}`);
+    }
 
-    private loadProposedChangesFromStorage(): void {
-        try {
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
-            for (const layer of layers) {
-                const key = `proposedChanges-${layer}`;
-                const stored = this.context.globalState.get<Record<string, ProposedChange>>(key);
-                if (stored) {
-                    this.proposedChangesByLayer[layer] = new Map(Object.entries(stored));
+    /**
+     * Reconcile in-memory graph state with actual file system
+     * Removes orphaned nodes that point to non-existent files
+     * Should be called on startup and after major file system changes
+     */
+    public async reconcileStateWithFilesystem(): Promise<void> {
+        const correlationId = generateCorrelationId();
+        log('[GraphService] Starting state reconciliation with file system...', () => ({ correlationId }));
+        
+        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        let totalOrphanedNodes = 0;
+        let totalOrphanedEdges = 0;
+        
+        for (const layer of layers) {
+            const graph = this.graphs[layer];
+            const orphanedNodeIds = new Set<string>();
+            
+            // Check each node that has a path (file nodes)
+            for (const node of graph.nodes) {
+                if (node.data.path) {
+                    // Skip agent-added nodes (they don't correspond to real files)
+                    if (node.data.isAgentAdded) {
+                        continue;
+                    }
+                    
+                    // Check if file exists
+                    if (!fs.existsSync(node.data.path)) {
+                        debug(`[GraphService] Found orphaned node: ${node.data.id} (path: ${node.data.path})`, () => ({ correlationId }));
+                        orphanedNodeIds.add(node.data.id);
+                        
+                        // Also mark child nodes as orphaned
+                        if (node.data.type === 'file') {
+                            const childNodes = graph.nodes.filter(n => n.data.parent === node.data.id);
+                            for (const childNode of childNodes) {
+                                orphanedNodeIds.add(childNode.data.id);
+                            }
+                        }
+                    }
                 }
             }
-        } catch (error) {
-            console.warn('Failed to load proposed changes from storage:', error);
+            
+            if (orphanedNodeIds.size === 0) {
+                debug(`[GraphService] No orphaned nodes found in ${layer} layer`, () => ({ correlationId }));
+                continue;
+            }
+            
+            // Remove orphaned edges
+            const orphanedEdges = graph.edges.filter(e => 
+                orphanedNodeIds.has(e.data.source) || orphanedNodeIds.has(e.data.target)
+            );
+            
+            log(`[GraphService] Found ${orphanedNodeIds.size} orphaned nodes and ${orphanedEdges.length} orphaned edges in ${layer} layer`, () => ({ correlationId }));
+            
+            // Mark nodes as deleted
+            for (const nodeId of orphanedNodeIds) {
+                this.markNodeAsDeleted(nodeId, layer);
+            }
+            
+            // Remove orphaned nodes and edges from graph
+            graph.nodes = graph.nodes.filter(n => !orphanedNodeIds.has(n.data.id));
+            graph.edges = graph.edges.filter(e => {
+                const edgeId = e.data.id;
+                return !orphanedEdges.some(removed => removed.data.id === edgeId);
+            });
+            
+            // Record in history
+            for (const nodeId of orphanedNodeIds) {
+                this.recordNodeHistory(layer, nodeId, {
+                    timestamp: Date.now(),
+                    action: 'deleted',
+                    details: 'Orphaned node removed during startup reconciliation'
+                });
+            }
+            
+            totalOrphanedNodes += orphanedNodeIds.size;
+            totalOrphanedEdges += orphanedEdges.length;
+        }
+        
+        if (totalOrphanedNodes > 0) {
+            log(`[GraphService] ✓ Reconciliation complete: removed ${totalOrphanedNodes} orphaned nodes and ${totalOrphanedEdges} orphaned edges across all layers`, () => ({ correlationId }));
+            // Sync to shared state
+            this.syncToSharedState();
+            // Fire graph change event
+            this.batchGraphChangeEvent();
+        } else {
+            log('[GraphService] ✓ Reconciliation complete: no orphaned nodes found', () => ({ correlationId }));
         }
     }
 
-    private saveProposedChangesToStorage(): void {
-        try {
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
-            for (const layer of layers) {
-                const key = `proposedChanges-${layer}`;
-                const obj: Record<string, ProposedChange> = {};
-                for (const [k, v] of this.proposedChangesByLayer[layer].entries()) {
-                    obj[k] = v;
-                }
-                this.context.globalState.update(key, obj);
-            }
-        } catch (error) {
-            console.warn('Failed to save proposed changes to storage:', error);
-        }
-    }
-
-    private loadNodeHistoryFromStorage(): void {
-        try {
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
-            for (const layer of layers) {
-                const key = `nodeHistory-${layer}`;
-                const stored = this.context.globalState.get<Record<string, NodeHistoryEvent[]>>(key);
-                if (stored) {
-                    this.nodeHistoryByLayer[layer] = new Map(Object.entries(stored));
-                }
-            }
-        } catch (error) {
-            console.warn('Failed to load node history from storage:', error);
-        }
-    }
-
-    private saveNodeHistoryToStorage(): void {
-        try {
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
-            for (const layer of layers) {
-                const key = `nodeHistory-${layer}`;
-                const obj: Record<string, NodeHistoryEvent[]> = {};
-                for (const [k, v] of this.nodeHistoryByLayer[layer].entries()) {
-                    obj[k] = v;
-                }
-                this.context.globalState.update(key, obj);
-            }
-        } catch (error) {
-            console.warn('Failed to save node history to storage:', error);
-        }
-    }
-
-    private loadDeletedNodesFromStorage(): void {
-        try {
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
-            for (const layer of layers) {
-                const key = `deletedNodes-${layer}`;
-                const stored = this.context.globalState.get<string[]>(key);
-                if (stored) {
-                    this.deletedNodeIds[layer] = new Set(stored);
-                }
-            }
-        } catch (error) {
-            console.warn('Failed to load deleted nodes from storage:', error);
-        }
-    }
-
-    private saveDeletedNodesToStorage(): void {
-        try {
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
-            for (const layer of layers) {
-                const key = `deletedNodes-${layer}`;
-                const arr = Array.from(this.deletedNodeIds[layer]);
-                this.context.globalState.update(key, arr);
-            }
-        } catch (error) {
-            console.warn('Failed to save deleted nodes to storage:', error);
-        }
-    }
 
     // ============================================================================
     // SHARED STATE SYNCHRONIZATION (Phase 3)
@@ -515,6 +710,32 @@ export class GraphService {
                     this.proposedChangesByLayer[layer].set(change.nodeId, change);
                 }
             }
+
+            // Load node history
+            if (sharedState.nodeHistory) {
+                for (const layer of layers) {
+                    this.nodeHistoryByLayer[layer].clear();
+                    const history = sharedState.nodeHistory[layer];
+                    if (history) {
+                        for (const [nodeId, events] of Object.entries(history)) {
+                            this.nodeHistoryByLayer[layer].set(nodeId, events);
+                        }
+                    }
+                }
+            }
+
+            // Load deleted nodes
+            if (sharedState.deletedNodes) {
+                for (const layer of layers) {
+                    this.deletedNodeIds[layer].clear();
+                    const deleted = sharedState.deletedNodes[layer];
+                    if (deleted) {
+                        for (const nodeId of deleted) {
+                            this.deletedNodeIds[layer].add(nodeId);
+                        }
+                    }
+                }
+            }
         } catch (error) {
             log(`[GraphService] Error loading from shared state: ${error}`);
         }
@@ -522,371 +743,323 @@ export class GraphService {
 
     /**
      * Handle external state changes (from MCP server or other instances)
+     * Uses three-way merge with property ownership awareness
      */
-    private handleExternalStateChange(sharedState: any): void {
-        const startTime = Date.now();
-        debug(`[GraphService] Handling external state change`, () => ({
-            version: sharedState.version,
-            source: sharedState.source,
-            currentLayer: sharedState.currentLayer || 'unknown',
-            nodeCounts: Object.entries(sharedState.graphs || {}).reduce((acc, [layer, graph]: [string, any]) => {
-                acc[layer] = graph?.nodes?.length || 0;
-                return acc;
-            }, {} as Record<string, number>)
-        }));
+    private handleExternalStateChange(sharedState: SharedGraphState): void {
+        debug(`[GraphService] Handling external state change (version ${sharedState.version}, source: ${sharedState.source})`);
         
-        // Set flag to prevent syncing back during this operation
-        if (this.isApplyingExternalChange) {
-            warn(`[GraphService] Already applying external change, ignoring recursive call`);
-            return;
-        }
-
-        this.isApplyingExternalChange = true;
-
         try {
-            // Detect changes before updating to determine if we need full refresh or property-only update
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
-            const propertyOnlyNodeUpdates = new Map<Layer, Map<string, Partial<GraphNode['data']>>>();
-            const propertyOnlyEdgeUpdates = new Map<Layer, Map<string, Partial<GraphEdge['data']>>>();
-            const structuralChangesByLayer = new Map<Layer, {
-                addedNodes: GraphNode[];
-                addedEdges: any[];
-                removedNodeIds: string[];
-                removedEdgeIds: string[];
-                isInitialLoad: boolean;
-            }>();
-            let hasStructuralChanges = false;
-
-            // Store old graphs before updating (needed for diff calculation)
-            const oldGraphs: Record<Layer, GraphData> = {
-                blueprint: JSON.parse(JSON.stringify(this.graphs.blueprint)),
-                architecture: JSON.parse(JSON.stringify(this.graphs.architecture)),
-                implementation: JSON.parse(JSON.stringify(this.graphs.implementation)),
-                dependencies: JSON.parse(JSON.stringify(this.graphs.dependencies))
-            };
-
-            for (const layer of layers) {
-                if (sharedState.graphs && sharedState.graphs[layer]) {
-                    const oldGraph = oldGraphs[layer];
-                    const newGraph = sharedState.graphs[layer];
-                    
-                    // Check if this is truly an initial load (old graph empty, new graph has nodes)
-                    const oldGraphEmpty = !oldGraph || !oldGraph.nodes || oldGraph.nodes.length === 0;
-                    const newGraphEmpty = !newGraph.nodes || (newGraph.nodes as GraphNode[]).length === 0;
-                    
-                    if (oldGraphEmpty && !newGraphEmpty) {
-                        // True initial load: old was empty, new has nodes
-                        hasStructuralChanges = true;
-                        structuralChangesByLayer.set(layer, {
-                            addedNodes: (newGraph.nodes as GraphNode[]),
-                            addedEdges: (newGraph.edges as any[]) || [],
-                            removedNodeIds: [],
-                            removedEdgeIds: [],
-                            isInitialLoad: true
-                        });
-                        debug(`[GraphService] ${layer}: True initial load detected (empty -> ${(newGraph.nodes as GraphNode[]).length} nodes), using full refresh`);
-                        continue;
-                    } else if (oldGraphEmpty && newGraphEmpty) {
-                        // Both empty - no change, skip
-                        debug(`[GraphService] ${layer}: Both old and new graphs are empty, skipping`);
-                        continue;
-                    } else if (!oldGraph || !oldGraph.nodes || oldGraph.nodes.length === 0) {
-                        // This shouldn't happen, but handle gracefully
-                        debug(`[GraphService] ${layer}: Old graph empty but new graph also empty, skipping`);
-                        continue;
-                    }
-                    
-                    // Check for structural changes (node/edge count or IDs changed)
-                    const oldNodeIds = new Set<string>(oldGraph.nodes.map((n: GraphNode) => n.data.id));
-                    const newNodeIds = new Set<string>((newGraph.nodes as GraphNode[]).map((n: GraphNode) => n.data.id));
-                    const oldEdgeIds = new Set<string>(oldGraph.edges.map((e: any) => e.data.id));
-                    const newEdgeIds = new Set<string>((newGraph.edges as any[]).map((e: any) => e.data.id));
-                    
-                    const nodesAdded = newNodeIds.size > oldNodeIds.size || 
-                        [...newNodeIds].some((id: string) => !oldNodeIds.has(id));
-                    const nodesRemoved = oldNodeIds.size > newNodeIds.size || 
-                        [...oldNodeIds].some((id: string) => !newNodeIds.has(id));
-                    const edgesAdded = newEdgeIds.size > oldEdgeIds.size || 
-                        [...newEdgeIds].some((id: string) => !oldEdgeIds.has(id));
-                    const edgesRemoved = oldEdgeIds.size > newEdgeIds.size || 
-                        [...oldEdgeIds].some((id: string) => !newEdgeIds.has(id));
-                    
-                    debug(`[GraphService] ${layer}: Change detection - nodesAdded: ${nodesAdded}, nodesRemoved: ${nodesRemoved}, edgesAdded: ${edgesAdded}, edgesRemoved: ${edgesRemoved}, oldNodes: ${oldNodeIds.size}, newNodes: ${newNodeIds.size}`);
-                    
-                    if (nodesAdded || nodesRemoved || edgesAdded || edgesRemoved) {
-                        hasStructuralChanges = true;
-                        
-                        // Calculate exact diff
-                        const addedNodeIds = [...newNodeIds].filter(id => !oldNodeIds.has(id));
-                        const removedNodeIds = [...oldNodeIds].filter(id => !newNodeIds.has(id));
-                        const addedEdgeIds = [...newEdgeIds].filter(id => !oldEdgeIds.has(id));
-                        const removedEdgeIds = [...oldEdgeIds].filter(id => !newEdgeIds.has(id));
-                        
-                        // Get the actual node/edge objects from new graph
-                        const addedNodes = (newGraph.nodes as GraphNode[]).filter(n => addedNodeIds.includes(n.data.id));
-                        const addedEdges = (newGraph.edges as any[]).filter(e => addedEdgeIds.includes(e.data.id));
-                        
-                        structuralChangesByLayer.set(layer, {
-                            addedNodes,
-                            addedEdges,
-                            removedNodeIds,
-                            removedEdgeIds,
-                            isInitialLoad: false
-                        });
-                        
-                        debug(`[GraphService] ${layer}: Structural changes detected - +${addedNodes.length} nodes, -${removedNodeIds.length} nodes, +${addedEdges.length} edges, -${removedEdgeIds.length} edges`);
-                    } else {
-                        // Check for property-only changes
-                        const nodeUpdates = new Map<string, Partial<GraphNode['data']>>();
-                        for (const newNode of newGraph.nodes) {
-                            const oldNode = oldGraph.nodes.find(n => n.data.id === newNode.data.id);
-                            if (oldNode) {
-                                // Compare node data properties
-                                const updates: Partial<GraphNode['data']> = {};
-                                let hasUpdates = false;
-                                
-                                // Get all unique keys from both old and new node data
-                                const allKeys = new Set<string>();
-                                for (const key in oldNode.data) {
-                                    if (Object.prototype.hasOwnProperty.call(oldNode.data, key)) {
-                                        allKeys.add(key);
-                                    }
-                                }
-                                for (const key in newNode.data) {
-                                    if (Object.prototype.hasOwnProperty.call(newNode.data, key)) {
-                                        allKeys.add(key);
-                                    }
-                                }
-                                
-                                // Check all properties in both old and new
-                                for (const key of allKeys) {
-                                    const typedKey = key as keyof GraphNode['data'];
-                                    const oldValue = oldNode.data[typedKey];
-                                    const newValue = newNode.data[typedKey];
-                                    
-                                    // Compare values (handles undefined, null, and other types)
-                                    let valuesDiffer = false;
-                                    if (oldValue === undefined && newValue === undefined) {
-                                        valuesDiffer = false;
-                                    } else if (oldValue === null && newValue === null) {
-                                        valuesDiffer = false;
-                                    } else if (oldValue === undefined || newValue === undefined) {
-                                        valuesDiffer = true; // One is undefined, other is not
-                                    } else if (oldValue === null || newValue === null) {
-                                        valuesDiffer = oldValue !== newValue;
-                                    } else {
-                                        // Both have values - use JSON.stringify for deep comparison
-                                        const oldStr = JSON.stringify(oldValue);
-                                        const newStr = JSON.stringify(newValue);
-                                        valuesDiffer = oldStr !== newStr;
-                                    }
-                                    
-                                    if (valuesDiffer) {
-                                        updates[typedKey] = newValue;
-                                        hasUpdates = true;
-                                        debug(`[GraphService] ${layer}: Node ${newNode.data.id} - property '${key}' changed: ${oldValue === undefined ? 'undefined' : JSON.stringify(oldValue)} -> ${newValue === undefined ? 'undefined' : JSON.stringify(newValue)}`);
-                                    }
-                                }
-                                
-                                if (hasUpdates) {
-                                    nodeUpdates.set(newNode.data.id, updates);
-                                }
-                            }
-                        }
-                        
-                        if (nodeUpdates.size > 0) {
-                            propertyOnlyNodeUpdates.set(layer, nodeUpdates);
-                            debug(`[GraphService] ${layer}: Property-only changes detected for ${nodeUpdates.size} nodes`);
-                        }
-                        
-                        // Check for edge property-only changes
-                        const edgeUpdates = new Map<string, Partial<GraphEdge['data']>>();
-                        for (const newEdge of newGraph.edges) {
-                            const oldEdge = oldGraph.edges.find(e => e.data.id === newEdge.data.id);
-                            if (oldEdge) {
-                                // Compare edge data properties
-                                const updates: Partial<GraphEdge['data']> = {};
-                                let hasUpdates = false;
-                                
-                                // Get all unique keys from both old and new edge data
-                                const allKeys = new Set<string>();
-                                for (const key in oldEdge.data) {
-                                    if (Object.prototype.hasOwnProperty.call(oldEdge.data, key)) {
-                                        allKeys.add(key);
-                                    }
-                                }
-                                for (const key in newEdge.data) {
-                                    if (Object.prototype.hasOwnProperty.call(newEdge.data, key)) {
-                                        allKeys.add(key);
-                                    }
-                                }
-                                
-                                // Check all properties in both old and new
-                                for (const key of allKeys) {
-                                    const typedKey = key as keyof GraphEdge['data'];
-                                    const oldValue = oldEdge.data[typedKey];
-                                    const newValue = newEdge.data[typedKey];
-                                    
-                                    // Compare values (handles undefined, null, and other types)
-                                    let valuesDiffer = false;
-                                    if (oldValue === undefined && newValue === undefined) {
-                                        valuesDiffer = false;
-                                    } else if (oldValue === null && newValue === null) {
-                                        valuesDiffer = false;
-                                    } else if (oldValue === undefined || newValue === undefined) {
-                                        valuesDiffer = true; // One is undefined, other is not
-                                    } else if (oldValue === null || newValue === null) {
-                                        valuesDiffer = oldValue !== newValue;
-                                    } else {
-                                        // Both have values - use JSON.stringify for deep comparison
-                                        const oldStr = JSON.stringify(oldValue);
-                                        const newStr = JSON.stringify(newValue);
-                                        valuesDiffer = oldStr !== newStr;
-                                    }
-                                    
-                                    if (valuesDiffer) {
-                                        updates[typedKey] = newValue;
-                                        hasUpdates = true;
-                                        debug(`[GraphService] ${layer}: Edge ${newEdge.data.id} - property '${key}' changed: ${oldValue === undefined ? 'undefined' : JSON.stringify(oldValue)} -> ${newValue === undefined ? 'undefined' : JSON.stringify(newValue)}`);
-                                    }
-                                }
-                                
-                                if (hasUpdates) {
-                                    edgeUpdates.set(newEdge.data.id, updates);
-                                }
-                            }
-                        }
-                        
-                        if (edgeUpdates.size > 0) {
-                            propertyOnlyEdgeUpdates.set(layer, edgeUpdates);
-                            debug(`[GraphService] ${layer}: Property-only changes detected for ${edgeUpdates.size} edges`);
-                        }
-                    }
-                }
-            }
-
-            // Update graphs - deep copy to ensure proper data structure
-            for (const layer of layers) {
-                if (sharedState.graphs && sharedState.graphs[layer]) {
-                    this.graphs[layer] = JSON.parse(JSON.stringify(sharedState.graphs[layer]));
-                    debug(`[GraphService] ${layer} layer updated: ${this.graphs[layer].nodes.length} nodes, ${this.graphs[layer].edges.length} edges`);
-                }
-            }
-            debug(`[GraphService] All graphs updated`);
-
-            // Update current layer
-            if (sharedState.currentLayer) {
-                this.currentLayer = sharedState.currentLayer;
-                debug(`[GraphService] Current layer updated: ${this.currentLayer}`);
-            }
-
-            // Update proposed changes
-            for (const layer of layers) {
-                this.proposedChangesByLayer[layer].clear();
-                const changes = sharedState.proposedChanges?.[layer] || [];
-                for (const change of changes) {
-                    this.proposedChangesByLayer[layer].set(change.nodeId, change);
-                }
-                if (changes.length > 0) {
-                    debug(`[GraphService] ${layer}: ${changes.length} proposed changes`);
-                }
-            }
-
-            // Notify listeners based on change type
-            // PRIORITY: Property-only updates take precedence over structural changes for the same layer
+            // Create current local state for merge
+            const localState = this.getCurrentStateSnapshot();
             
-            // First, handle property-only node updates (these take priority)
-            if (propertyOnlyNodeUpdates.size > 0) {
-                for (const [layer, nodeUpdates] of propertyOnlyNodeUpdates.entries()) {
-                    this.onNodePropertiesChangedEmitter.fire({ layer, nodeUpdates });
+            // Check if we need conflict resolution
+            if (conflictResolutionService.hasConflicts(localState, sharedState)) {
+                log(`[GraphService] Conflicts detected, performing three-way merge...`);
+                
+                // Perform three-way merge
+                const { mergedState, conflicts, stats } = conflictResolutionService.mergeStates(
+                    this.lastSyncedState,
+                    localState,
+                    sharedState
+                );
+                
+                if (conflicts.length > 0) {
+                    log(`[GraphService] ✓ Resolved ${conflicts.length} conflicts during merge`, () => ({
+                        nodesProcessed: stats.nodesProcessed,
+                        conflictsResolved: stats.conflictsResolved
+                    }));
                 }
-            }
-            
-            // Handle property-only edge updates
-            if (propertyOnlyEdgeUpdates.size > 0) {
-                for (const [layer, edgeUpdates] of propertyOnlyEdgeUpdates.entries()) {
-                    this.onEdgePropertiesChangedEmitter.fire({ layer, edgeUpdates });
+                
+                // Apply merged state
+                this.applyMergedState(mergedState);
+                
+                // Update last synced state
+                this.lastSyncedState = conflictResolutionService.createMergeBase(mergedState);
+            } else {
+                // No conflicts - apply simple merge
+                if (sharedState.source === 'mcp-server') {
+                    // MCP enriched the graph - merge only MCP-owned properties
+                    this.mergeExternalChanges(sharedState);
+                } else {
+                    // Another extension instance - full replace (rare case)
+                    this.applyFullGraphUpdate(sharedState);
                 }
-            }
-            
-            // Then, handle structural changes for layers that don't have property-only updates
-            if (hasStructuralChanges) {
-                // For external changes, use incremental updates to preserve zoom/state
-                for (const [layer, changeInfo] of structuralChangesByLayer.entries()) {
-                    // Skip if this layer already has property-only updates (already handled above)
-                    if (propertyOnlyNodeUpdates.has(layer) || propertyOnlyEdgeUpdates.has(layer)) {
-                        continue;
-                    }
-                    
-                    if (changeInfo.isInitialLoad) {
-                        // Initial load - use full refresh
-                        this.batchGraphChangeEvent();
-                    } else if (changeInfo.addedNodes.length > 0 || changeInfo.removedNodeIds.length > 0 || 
-                               changeInfo.addedEdges.length > 0 || changeInfo.removedEdgeIds.length > 0) {
-                        // Incremental structural change - preserve zoom/state
-                        this.onGraphChangedIncrementalEmitter.fire({
-                            layer,
-                            addedNodes: changeInfo.addedNodes,
-                            addedEdges: changeInfo.addedEdges,
-                            removedNodeIds: changeInfo.removedNodeIds,
-                            removedEdgeIds: changeInfo.removedEdgeIds,
-                            fullGraph: this.graphs[layer] // Current state after update
-                        });
-                    }
-                }
+                
+                // Update last synced state
+                this.lastSyncedState = conflictResolutionService.createMergeBase(sharedState);
             }
 
-            const totalTime = Date.now() - startTime;
-            debug(`[GraphService] External state change applied (${totalTime}ms)`);
         } catch (err) {
-            error(`[GraphService] Error handling external state change`, err);
-        } finally {
-            // Reset flag after a delay to allow any triggered operations to complete
-            setTimeout(() => {
-                this.isApplyingExternalChange = false;
-                debug(`[GraphService] Reset isApplyingExternalChange flag`);
-            }, 500);
+            logError(`[GraphService] Error handling external state change`, err);
         }
+    }
+
+    /**
+     * Get current state as a snapshot for merge operations
+     */
+    private getCurrentStateSnapshot(): SharedGraphState {
+        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const proposedChangesArray: any = {};
+        const nodeHistoryObject: any = {};
+        const deletedNodesArray: any = {};
+        
+        for (const layer of layers) {
+            proposedChangesArray[layer] = Array.from(this.proposedChangesByLayer[layer].values());
+            
+            const historyMap = this.nodeHistoryByLayer[layer];
+            nodeHistoryObject[layer] = {};
+            for (const [nodeId, events] of historyMap.entries()) {
+                nodeHistoryObject[layer][nodeId] = events;
+            }
+            
+            deletedNodesArray[layer] = Array.from(this.deletedNodeIds[layer]);
+        }
+
+        return {
+            schemaVersion: 1,
+            version: 0, // Will be set during merge
+            timestamp: Date.now(),
+            source: 'vscode-extension',
+            currentLayer: this.currentLayer,
+            agentOnlyMode: false,
+            graphs: this.graphs,
+            proposedChanges: proposedChangesArray,
+            nodeHistory: nodeHistoryObject,
+            deletedNodes: deletedNodesArray
+        };
+    }
+
+    /**
+     * Apply merged state after conflict resolution
+     */
+    private applyMergedState(mergedState: SharedGraphState): void {
+        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        
+        // Apply graphs
+        for (const layer of layers) {
+            if (mergedState.graphs && mergedState.graphs[layer]) {
+                this.graphs[layer] = JSON.parse(JSON.stringify(mergedState.graphs[layer]));
+            }
+        }
+
+        // Apply current layer
+        if (mergedState.currentLayer) {
+            this.currentLayer = mergedState.currentLayer;
+        }
+
+        // Apply proposed changes
+        for (const layer of layers) {
+            this.proposedChangesByLayer[layer].clear();
+            const changes = mergedState.proposedChanges?.[layer] || [];
+            for (const change of changes) {
+                this.proposedChangesByLayer[layer].set(change.nodeId, change);
+            }
+        }
+
+        // Apply node history
+        if (mergedState.nodeHistory) {
+            for (const layer of layers) {
+                this.nodeHistoryByLayer[layer].clear();
+                const history = mergedState.nodeHistory[layer];
+                if (history) {
+                    for (const [nodeId, events] of Object.entries(history)) {
+                        if (Array.isArray(events)) {
+                            this.nodeHistoryByLayer[layer].set(nodeId, events as NodeHistoryEvent[]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply deleted nodes
+        if (mergedState.deletedNodes) {
+            for (const layer of layers) {
+                this.deletedNodeIds[layer].clear();
+                const deleted = mergedState.deletedNodes[layer];
+                if (deleted) {
+                    for (const nodeId of deleted) {
+                        this.deletedNodeIds[layer].add(nodeId);
+                    }
+                }
+            }
+        }
+
+        // Fire full graph change event
+        this.batchGraphChangeEvent();
+        
+        debug(`[GraphService] Applied merged state after conflict resolution`);
+    }
+
+    /**
+     * Merge external changes from MCP server (property-only updates)
+     * Only merges MCP-owned properties, preserves extension-owned properties
+     */
+    private mergeExternalChanges(external: any): void {
+        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const nodeUpdatesMap = new Map<Layer, Map<string, Partial<GraphNode['data']>>>();
+        
+        for (const layer of layers) {
+            const nodeUpdates = new Map<string, Partial<GraphNode['data']>>();
+            
+            if (external.graphs && external.graphs[layer]) {
+                // Process node updates
+                for (const externalNode of external.graphs[layer].nodes) {
+                    const existing = this.graphs[layer].nodes.find(n => n.data.id === externalNode.data.id);
+                    
+                    if (existing) {
+                        // Merge only MCP-owned properties
+                        const updates = this.extractMcpProperties(externalNode.data);
+                        if (Object.keys(updates).length > 0) {
+                            Object.assign(existing.data, updates);
+                            nodeUpdates.set(externalNode.data.id, updates);
+                        }
+                    } else if (externalNode.data.isAgentAdded) {
+                        // New agent-added node - accept it
+                        this.graphs[layer].nodes.push(externalNode);
+                    }
+                }
+                
+                // Process edge updates (agents can add edges too)
+                for (const externalEdge of external.graphs[layer].edges || []) {
+                    const existing = this.graphs[layer].edges.find(e => e.data.id === externalEdge.data.id);
+                    if (!existing) {
+                        // New edge (likely from agent) - add it
+                        this.graphs[layer].edges.push(externalEdge);
+                    }
+                }
+            }
+            
+            if (nodeUpdates.size > 0) {
+                nodeUpdatesMap.set(layer, nodeUpdates);
+            }
+        }
+
+        // Update proposed changes
+        for (const layer of layers) {
+            this.proposedChangesByLayer[layer].clear();
+            const changes = external.proposedChanges?.[layer] || [];
+            for (const change of changes) {
+                this.proposedChangesByLayer[layer].set(change.nodeId, change);
+            }
+        }
+
+        // Fire property update events for changed nodes
+        for (const [layer, nodeUpdates] of nodeUpdatesMap) {
+            if (nodeUpdates.size > 0) {
+                this.onNodePropertiesChangedEmitter.fire({ layer, nodeUpdates });
+            }
+        }
+        
+        debug(`[GraphService] Merged MCP properties for ${nodeUpdatesMap.size} layer(s)`);
+    }
+
+    /**
+     * Extract only MCP-owned properties from a node
+     */
+    private extractMcpProperties(nodeData: any): Partial<GraphNode['data']> {
+        const updates: any = {};
+        
+        for (const key of MCP_OWNED_PROPERTIES) {
+            if (key in nodeData) {
+                updates[key] = nodeData[key];
+            }
+        }
+        
+        return updates;
+    }
+
+    /**
+     * Apply full graph update (for updates from another extension instance)
+     * This is the fallback for non-MCP sources
+     */
+    private applyFullGraphUpdate(sharedState: any): void {
+        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        
+        // Deep copy to ensure proper data structure
+        for (const layer of layers) {
+            if (sharedState.graphs && sharedState.graphs[layer]) {
+                this.graphs[layer] = JSON.parse(JSON.stringify(sharedState.graphs[layer]));
+            }
+        }
+
+        // Update proposed changes
+        for (const layer of layers) {
+            this.proposedChangesByLayer[layer].clear();
+            const changes = sharedState.proposedChanges?.[layer] || [];
+            for (const change of changes) {
+                this.proposedChangesByLayer[layer].set(change.nodeId, change);
+            }
+        }
+
+        // Update node history
+        if (sharedState.nodeHistory) {
+            for (const layer of layers) {
+                this.nodeHistoryByLayer[layer].clear();
+                const history = sharedState.nodeHistory[layer];
+                if (history) {
+                    for (const [nodeId, events] of Object.entries(history)) {
+                        if (Array.isArray(events)) {
+                            this.nodeHistoryByLayer[layer].set(nodeId, events as NodeHistoryEvent[]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update deleted nodes
+        if (sharedState.deletedNodes) {
+            for (const layer of layers) {
+                this.deletedNodeIds[layer].clear();
+                const deleted = sharedState.deletedNodes[layer];
+                if (deleted) {
+                    for (const nodeId of deleted) {
+                        this.deletedNodeIds[layer].add(nodeId);
+                    }
+                }
+            }
+        }
+
+        // Fire full graph change event
+        this.batchGraphChangeEvent();
+        
+        debug(`[GraphService] Applied full graph update from ${sharedState.source}`);
     }
 
     /**
      * Sync current state to shared file (for MCP server to read)
      */
     private syncToSharedState(): void {
-        debug(`[GraphService] syncToSharedState called`);
-        log(`  - isApplyingExternalChange: ${this.isApplyingExternalChange}`);
-        
-        // Don't sync if we're applying an external change to prevent feedback loop
-        if (this.isApplyingExternalChange) {
-            debug(`[GraphService] Skipping sync - currently applying external change (preventing feedback loop)`);
-            return;
-        }
-
         try {
-            debug(`[GraphService] Preparing state for sync...`);
             // Convert proposed changes from Map to Array
             const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
             const proposedChangesArray: any = {};
+            const nodeHistoryObject: any = {};
+            const deletedNodesArray: any = {};
             
             for (const layer of layers) {
                 proposedChangesArray[layer] = Array.from(this.proposedChangesByLayer[layer].values());
-                log(`  - ${layer}: ${proposedChangesArray[layer].length} proposed changes`);
+                
+                // Convert node history from Map to Record
+                const historyMap = this.nodeHistoryByLayer[layer];
+                nodeHistoryObject[layer] = {};
+                for (const [nodeId, events] of historyMap.entries()) {
+                    nodeHistoryObject[layer][nodeId] = events;
+                }
+                
+                // Convert deleted nodes from Set to Array
+                deletedNodesArray[layer] = Array.from(this.deletedNodeIds[layer]);
             }
 
-            debug(`[GraphService] Calling stateSyncService.writeState...`);
             // Write to shared state
             this.stateSyncService.writeState({
                 currentLayer: this.currentLayer,
                 graphs: this.graphs,
-                proposedChanges: proposedChangesArray
+                proposedChanges: proposedChangesArray,
+                nodeHistory: nodeHistoryObject,
+                deletedNodes: deletedNodesArray
             });
-            debug(`[GraphService] State sync initiated`);
         } catch (error) {
-            log(`[GraphService] ❌ ERROR syncing to shared state: ${error}`);
-            if (error instanceof Error) {
-                log(`[GraphService] Error message: ${error.message}`);
-                log(`[GraphService] Error stack: ${error.stack}`);
-            }
+            log(`[GraphService] Error syncing to shared state: ${error}`);
         }
     }
 
@@ -904,7 +1077,6 @@ export class GraphService {
      * - All proposed changes
      * - All node history
      * - All deleted node tracking
-     * - globalState storage
      * - graph-state.json file
      */
     public async clearAllState(): Promise<void> {
@@ -918,28 +1090,12 @@ export class GraphService {
             dependencies: { nodes: [], edges: [] }
         };
         
-        // Clear proposed changes
+        // Clear proposed changes, node history, and deleted nodes
         const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
         for (const layer of layers) {
             this.proposedChangesByLayer[layer].clear();
             this.nodeHistoryByLayer[layer].clear();
             this.deletedNodeIds[layer].clear();
-        }
-        
-        // Clear globalState
-        try {
-            // Clear graph data
-            await this.context.globalState.update('graphData', undefined);
-            
-            // Clear proposed changes
-            for (const layer of layers) {
-                await this.context.globalState.update(`proposedChanges-${layer}`, undefined);
-                await this.context.globalState.update(`nodeHistory-${layer}`, undefined);
-                await this.context.globalState.update(`deletedNodes-${layer}`, undefined);
-            }
-            log('[GraphService] ✓ Cleared globalState');
-        } catch (error) {
-            log(`[GraphService] Error clearing globalState: ${error}`);
         }
         
         // Delete graph-state.json file

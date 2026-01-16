@@ -83,7 +83,7 @@ export interface ProposedChange {
 // Node history event for tracking changes over time
 export interface NodeHistoryEvent {
     timestamp: number;
-    action: 'added' | 'changed' | 'removed' | 'edge-added' | 'edge-changed' | 'edge-removed';
+    action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
     details?: string; // Human-readable description
 }
 

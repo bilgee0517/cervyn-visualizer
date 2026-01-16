@@ -19,6 +19,13 @@ import {
 import { GraphStateManager } from './graph-state-manager.js';
 import { MCP_FUNCTION_IDS } from './mcp-function-ids.js';
 import * as tools from './tools/index.js';
+import { 
+  GetGraphArgsSchema, 
+  UpdateNodeArgsSchema, 
+  UpdateEdgeArgsSchema,
+  formatValidationError 
+} from './validation/schemas.js';
+import { ZodError } from 'zod';
 
 // Initialize graph state manager
 const graphState = new GraphStateManager();
@@ -134,43 +141,87 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 /**
- * Handle tool calls
+ * Handle tool calls with validation
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
-    let result;
+    let validatedArgs: any;
+    let result: any;
 
+    // Validate arguments based on tool type
     switch (name) {
       case MCP_FUNCTION_IDS.GET_GRAPH:
-        result = await tools.getGraph(graphState, args);
+        validatedArgs = GetGraphArgsSchema.parse(args || {});
+        result = await tools.getGraph(graphState, validatedArgs);
         break;
+      
       case MCP_FUNCTION_IDS.UPDATE_NODE:
-        result = await tools.updateNode(graphState, args);
+        validatedArgs = UpdateNodeArgsSchema.parse(args);
+        result = await tools.updateNode(graphState, validatedArgs);
         break;
+      
       case MCP_FUNCTION_IDS.UPDATE_EDGE:
-        result = await tools.updateEdge(graphState, args);
+        validatedArgs = UpdateEdgeArgsSchema.parse(args);
+        result = await tools.updateEdge(graphState, validatedArgs);
         break;
+      
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
 
+    // Return successful result
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify(result, null, 2),
+          text: JSON.stringify({
+            success: true,
+            data: result,
+            timestamp: new Date().toISOString()
+          }, null, 2),
         },
       ],
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    // Enhanced error handling with structured responses
+    let errorResponse: any = {
+      success: false,
+      timestamp: new Date().toISOString(),
+      tool: name
+    };
+
+    if (error instanceof ZodError) {
+      // Validation error - provide detailed feedback
+      errorResponse.error = {
+        type: 'ValidationError',
+        message: 'Invalid arguments provided',
+        details: formatValidationError(error),
+        issues: error.issues
+      };
+    } else if (error instanceof Error) {
+      // Known error type
+      errorResponse.error = {
+        type: error.constructor.name,
+        message: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      };
+    } else {
+      // Unknown error type
+      errorResponse.error = {
+        type: 'UnknownError',
+        message: String(error)
+      };
+    }
+
+    console.error(`[MCP Error] Tool: ${name}`, errorResponse.error);
+
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify({ error: errorMessage }, null, 2),
+          text: JSON.stringify(errorResponse, null, 2),
         },
       ],
       isError: true,

@@ -13,6 +13,8 @@ import { BaseLanguageResolver } from './BaseLanguageResolver';
 import { LanguageResolver, ImportInfo, ParserInfo } from './LanguageResolver';
 import { GraphNode, GraphEdge } from '../../types';
 import { log } from '../../logger';
+import { TreeSitterError, FileSystemError } from '../../errors';
+import { handleError } from '../../utils/error-handler';
 
 // Import Java parser
 let Java: any = null;
@@ -138,8 +140,19 @@ export class JavaResolver extends BaseLanguageResolver implements LanguageResolv
             }
 
             return imports;
-        } catch (error) {
-            log(`[JavaResolver] Error parsing imports for ${path.basename(sourceFile)}: ${error}. Falling back to regex.`);
+        } catch (err) {
+            const error = new TreeSitterError(
+                'Failed to parse Java imports',
+                'java',
+                'imports',
+                { sourceFile: path.basename(sourceFile) },
+                err instanceof Error ? err : undefined
+            );
+            handleError(error, {
+                operation: 'extract java imports',
+                component: 'JavaResolver',
+                metadata: { sourceFile: path.basename(sourceFile), usingFallback: true }
+            });
             return this.fallbackExtractImports(content, sourceFile);
         }
     }
@@ -266,8 +279,19 @@ export class JavaResolver extends BaseLanguageResolver implements LanguageResolv
             }
 
             return { nodes, edges };
-        } catch (error) {
-            log(`[JavaResolver] Error parsing symbols for ${fileId}: ${error}`);
+        } catch (err) {
+            const error = new TreeSitterError(
+                'Failed to parse Java symbols',
+                'java',
+                'symbols',
+                { fileId },
+                err instanceof Error ? err : undefined
+            );
+            handleError(error, {
+                operation: 'extract java symbols',
+                component: 'JavaResolver',
+                metadata: { fileId }
+            });
             return { nodes: [], edges: [] };
         }
     }
@@ -322,8 +346,19 @@ export class JavaResolver extends BaseLanguageResolver implements LanguageResolv
                     found.push(uri.fsPath);
                     log(`[JavaResolver] Found entry point: ${path.relative(rootPath, uri.fsPath)}`);
                 }
-            } catch (e) {
-                log(`[JavaResolver] Could not read ${uri.fsPath}: ${e}`);
+            } catch (err) {
+                const error = new FileSystemError(
+                    'Could not read Java file',
+                    uri.fsPath,
+                    'read',
+                    { operation: 'findEntryPoints' },
+                    err instanceof Error ? err : undefined
+                );
+                handleError(error, {
+                    operation: 'find java entry points',
+                    component: 'JavaResolver',
+                    metadata: { filePath: uri.fsPath }
+                });
             }
         }
 

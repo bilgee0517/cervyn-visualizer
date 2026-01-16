@@ -13,6 +13,8 @@ import { BaseLanguageResolver } from './BaseLanguageResolver';
 import { LanguageResolver, ImportInfo, ParserInfo } from './LanguageResolver';
 import { GraphNode, GraphEdge } from '../../types';
 import { log } from '../../logger';
+import { TreeSitterError, ParsingError } from '../../errors';
+import { handleError } from '../../utils/error-handler';
 
 // Import Python parser
 let Python: any = null;
@@ -339,8 +341,20 @@ export class PythonResolver extends BaseLanguageResolver implements LanguageReso
                         }
                     }
                 }
-            } catch (e) {
-                log(`[PythonResolver] Could not parse setup.py: ${e}`);
+            } catch (err) {
+                const error = new ParsingError(
+                    'Could not parse setup.py',
+                    setupPy,
+                    undefined,
+                    undefined,
+                    { operation: 'getEntryPoints' },
+                    err instanceof Error ? err : undefined
+                );
+                handleError(error, {
+                    operation: 'parse setup.py',
+                    component: 'PythonResolver',
+                    metadata: { filePath: setupPy }
+                });
             }
         }
 
@@ -362,8 +376,20 @@ export class PythonResolver extends BaseLanguageResolver implements LanguageReso
                         }
                     }
                 }
-            } catch (e) {
-                log(`[PythonResolver] Could not parse pyproject.toml: ${e}`);
+            } catch (err) {
+                const error = new ParsingError(
+                    'Could not parse pyproject.toml',
+                    pyprojectToml,
+                    undefined,
+                    undefined,
+                    { operation: 'getEntryPoints' },
+                    err instanceof Error ? err : undefined
+                );
+                handleError(error, {
+                    operation: 'parse pyproject.toml',
+                    component: 'PythonResolver',
+                    metadata: { pyprojectPath: pyprojectToml }
+                });
             }
         }
 

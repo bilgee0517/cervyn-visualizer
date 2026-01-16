@@ -81,6 +81,7 @@ export function initializeOutputChannel() {
 /**
  * Core logging function with level checking
  * Uses lazy evaluation for expensive operations (like JSON.stringify)
+ * Supports structured logging with correlation IDs
  */
 function logInternal(level: LogLevel, message: string, data?: () => any) {
     // Fast path: skip if below current log level
@@ -95,27 +96,37 @@ function logInternal(level: LogLevel, message: string, data?: () => any) {
     
     // Format message with optional data (lazy evaluation)
     let formattedMessage = message;
+    let structuredData: any = undefined;
+    
     if (data) {
         try {
             // Only stringify if we're actually going to log
             const dataValue = data();
             if (dataValue !== undefined) {
-                // Use compact JSON for large objects
-                const jsonStr = JSON.stringify(dataValue);
-                if (jsonStr.length > 500) {
-                    formattedMessage = `${message} [${jsonStr.substring(0, 500)}... (truncated)]`;
+                structuredData = dataValue;
+                
+                // Format data for display
+                const jsonStr = JSON.stringify(dataValue, null, 2);
+                
+                // For very large objects, provide a link to structured data instead of truncating
+                if (jsonStr.length > 2000) {
+                    const preview = JSON.stringify(dataValue, null, 2).substring(0, 500);
+                    formattedMessage = `${message}\nData: ${preview}...\n(${jsonStr.length} total characters - see structured output)`;
                 } else {
-                    formattedMessage = `${message} ${jsonStr}`;
+                    formattedMessage = `${message}\nData: ${jsonStr}`;
                 }
             }
         } catch (err) {
-            formattedMessage = `${message} [Error serializing data: ${err}]`;
+            formattedMessage = `${message}\n[Error serializing data: ${err}]`;
         }
     }
     
-    // Add timestamp and level prefix
-    const timestamp = new Date().toISOString().split('T')[1].split('.')[0]; // HH:MM:SS
-    const prefix = `[${timestamp}] [${LogLevel[level]}]`;
+    // Add timestamp and level prefix with correlation ID if present
+    const timestamp = new Date().toISOString(); // Full ISO timestamp for better debugging
+    const correlationId = structuredData?.correlationId;
+    const prefix = correlationId 
+        ? `[${timestamp}] [${LogLevel[level]}] [${correlationId}]`
+        : `[${timestamp}] [${LogLevel[level]}]`;
     const fullMessage = `${prefix} ${formattedMessage}`;
     
     // Write to output channel
@@ -124,17 +135,29 @@ function logInternal(level: LogLevel, message: string, data?: () => any) {
     }
     
     // Write to console with appropriate method
+    // In development, also log structured data separately for better inspection
+    const consoleMessage = fullMessage;
+    
     switch (level) {
         case LogLevel.DEBUG:
         case LogLevel.INFO:
-            console.log(fullMessage);
+            console.log(consoleMessage);
+            if (structuredData && process.env.NODE_ENV === 'development') {
+                console.log('Structured data:', structuredData);
+            }
             break;
         case LogLevel.WARN:
-            console.warn(fullMessage);
+            console.warn(consoleMessage);
+            if (structuredData && process.env.NODE_ENV === 'development') {
+                console.warn('Structured data:', structuredData);
+            }
             break;
         case LogLevel.ERROR:
         case LogLevel.CRITICAL:
-            console.error(fullMessage);
+            console.error(consoleMessage);
+            if (structuredData && process.env.NODE_ENV === 'development') {
+                console.error('Structured data:', structuredData);
+            }
             break;
     }
 }
@@ -177,9 +200,8 @@ export function error(message: string, err?: Error | unknown, data?: () => any) 
     if (err instanceof Error) {
         errorMessage = `${message}: ${err.message}`;
         if (err.stack) {
-            // Only include first 5 lines of stack trace to avoid spam
-            const stackLines = err.stack.split('\n').slice(0, 5).join('\n');
-            errorMessage += `\nStack: ${stackLines}`;
+            // Include full stack trace for better debugging
+            errorMessage += `\nStack: ${err.stack}`;
         }
     } else if (err) {
         errorMessage = `${message}: ${String(err)}`;
