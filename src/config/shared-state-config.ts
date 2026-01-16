@@ -7,6 +7,7 @@
 
 import * as os from 'os';
 import * as path from 'path';
+import { log } from '../logger';
 
 /**
  * Get the shared state directory (cross-platform)
@@ -32,9 +33,16 @@ export function getStateLockFile(): string {
 }
 
 /**
+ * Current schema version for state file migrations
+ * Increment this when making breaking changes to SharedGraphState structure
+ */
+export const SCHEMA_VERSION = 1;
+
+/**
  * Shared state file schema
  */
 export interface SharedGraphState {
+    schemaVersion: number; // Schema version for migrations (incremented on breaking changes)
     version: number; // Incremented on every write for conflict detection
     timestamp: number; // Unix timestamp of last update
     source: 'mcp-server' | 'vscode-extension'; // Who made the last update
@@ -101,22 +109,22 @@ export interface SharedGraphState {
     nodeHistory?: {
         blueprint: Record<string, Array<{
             timestamp: number;
-            action: 'added' | 'changed' | 'removed' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
             details?: string;
         }>>;
         architecture: Record<string, Array<{
             timestamp: number;
-            action: 'added' | 'changed' | 'removed' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
             details?: string;
         }>>;
         implementation: Record<string, Array<{
             timestamp: number;
-            action: 'added' | 'changed' | 'removed' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
             details?: string;
         }>>;
         dependencies: Record<string, Array<{
             timestamp: number;
-            action: 'added' | 'changed' | 'removed' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
             details?: string;
         }>>;
     };
@@ -135,6 +143,7 @@ export interface SharedGraphState {
  */
 export function createEmptySharedState(): SharedGraphState {
     return {
+        schemaVersion: SCHEMA_VERSION,
         version: 1,
         timestamp: Date.now(),
         source: 'vscode-extension',
@@ -165,6 +174,86 @@ export function createEmptySharedState(): SharedGraphState {
             dependencies: []
         }
     };
+}
+
+/**
+ * Migrate state from old schema version to current version
+ * @param state The state to migrate
+ * @returns Migrated state with current schema version
+ */
+export function migrateStateSchema(state: any): SharedGraphState {
+    const fromVersion = state.schemaVersion || 0;
+    
+    if (fromVersion === SCHEMA_VERSION) {
+        return state as SharedGraphState; // Already at current version
+    }
+    
+    log(`[Schema Migration] Migrating state from schema v${fromVersion} to v${SCHEMA_VERSION}`);
+    
+    // Migration chain - apply migrations sequentially
+    let migratedState = { ...state };
+    
+    // Migration from v0 (no schemaVersion) to v1
+    if (fromVersion < 1) {
+        migratedState = migrateV0ToV1(migratedState);
+    }
+    
+    // Future migrations would go here:
+    // if (fromVersion < 2) {
+    //     migratedState = migrateV1ToV2(migratedState);
+    // }
+    
+    migratedState.schemaVersion = SCHEMA_VERSION;
+    log(`[Schema Migration] ✓ Migration complete: v${fromVersion} -> v${SCHEMA_VERSION}`);
+    
+    return migratedState as SharedGraphState;
+}
+
+/**
+ * Migrate from v0 (no schemaVersion field) to v1
+ * v1 adds: schemaVersion field, ensures all required fields exist
+ */
+function migrateV0ToV1(state: any): any {
+    const migrated = { ...state };
+    
+    // Add schemaVersion field
+    migrated.schemaVersion = 1;
+    
+    // Ensure all required fields exist with defaults
+    if (!migrated.nodeHistory) {
+        migrated.nodeHistory = {
+            blueprint: {},
+            architecture: {},
+            implementation: {},
+            dependencies: {}
+        };
+    }
+    
+    if (!migrated.deletedNodes) {
+        migrated.deletedNodes = {
+            blueprint: [],
+            architecture: [],
+            implementation: [],
+            dependencies: []
+        };
+    }
+    
+    if (!migrated.proposedChanges) {
+        migrated.proposedChanges = {
+            blueprint: [],
+            architecture: [],
+            implementation: [],
+            dependencies: []
+        };
+    }
+    
+    if (!migrated.agentOnlyMode) {
+        migrated.agentOnlyMode = false;
+    }
+    
+    log(`[Schema Migration] ✓ Migrated v0 -> v1: added schemaVersion and missing fields`);
+    
+    return migrated;
 }
 
 // ============================================================================

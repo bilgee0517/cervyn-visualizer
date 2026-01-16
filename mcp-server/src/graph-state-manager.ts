@@ -10,6 +10,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as lockfile from 'proper-lockfile';
+
+// Schema version for state file migrations
+const SCHEMA_VERSION = 1;
 
 // Import property ownership boundaries from shared config
 // Note: In production, these should be in a shared package or copied between projects
@@ -156,6 +160,24 @@ export class GraphStateManager {
                     return;
                 }
 
+                // Apply schema migrations if needed
+                const currentSchemaVersion = sharedState.schemaVersion || 0;
+                if (currentSchemaVersion < SCHEMA_VERSION) {
+                    console.error(`[GraphStateManager] State needs schema migration (current: ${currentSchemaVersion}, target: ${SCHEMA_VERSION})`);
+                    sharedState = this.migrateStateSchema(sharedState);
+                    
+                    // Write migrated state back to file
+                    try {
+                        const tempFile = stateFile + '.tmp';
+                        fs.writeFileSync(tempFile, JSON.stringify(sharedState, null, 2), 'utf-8');
+                        fs.renameSync(tempFile, stateFile);
+                        console.error(`[GraphStateManager] ✓ Migrated state written to file`);
+                    } catch (err) {
+                        console.error(`[GraphStateManager] Warning: Failed to write migrated state: ${err instanceof Error ? err.message : String(err)}`);
+                        // Continue with in-memory migrated state even if write fails
+                    }
+                }
+
                 // Load graphs
                 if (sharedState.graphs) {
                     this.graphs = sharedState.graphs;
@@ -207,6 +229,80 @@ export class GraphStateManager {
         }
     }
 
+    /**
+     * Migrate state from old schema version to current version
+     */
+    private migrateStateSchema(state: any): any {
+        const fromVersion = state.schemaVersion || 0;
+        
+        if (fromVersion === SCHEMA_VERSION) {
+            return state; // Already at current version
+        }
+        
+        console.error(`[GraphStateManager] [Schema Migration] Migrating state from schema v${fromVersion} to v${SCHEMA_VERSION}`);
+        
+        // Migration chain - apply migrations sequentially
+        let migratedState = { ...state };
+        
+        // Migration from v0 (no schemaVersion) to v1
+        if (fromVersion < 1) {
+            migratedState = this.migrateV0ToV1(migratedState);
+        }
+        
+        // Future migrations would go here
+        
+        migratedState.schemaVersion = SCHEMA_VERSION;
+        console.error(`[GraphStateManager] [Schema Migration] ✓ Migration complete: v${fromVersion} -> v${SCHEMA_VERSION}`);
+        
+        return migratedState;
+    }
+
+    /**
+     * Migrate from v0 (no schemaVersion field) to v1
+     */
+    private migrateV0ToV1(state: any): any {
+        const migrated = { ...state };
+        
+        // Add schemaVersion field
+        migrated.schemaVersion = 1;
+        
+        // Ensure all required fields exist with defaults
+        if (!migrated.nodeHistory) {
+            migrated.nodeHistory = {
+                blueprint: {},
+                architecture: {},
+                implementation: {},
+                dependencies: {}
+            };
+        }
+        
+        if (!migrated.deletedNodes) {
+            migrated.deletedNodes = {
+                blueprint: [],
+                architecture: [],
+                implementation: [],
+                dependencies: []
+            };
+        }
+        
+        if (!migrated.proposedChanges) {
+            migrated.proposedChanges = {
+                blueprint: [],
+                architecture: [],
+                implementation: [],
+                dependencies: []
+            };
+        }
+        
+        if (migrated.agentOnlyMode === undefined) {
+            migrated.agentOnlyMode = false;
+        }
+        
+        console.error(`[GraphStateManager] [Schema Migration] ✓ Migrated v0 -> v1: added schemaVersion and missing fields`);
+        
+        return migrated;
+    }
+
     private syncToSharedState(): void {
         // Debounce writes to avoid excessive I/O
         if (this.writeDebounceTimer) {
@@ -214,13 +310,35 @@ export class GraphStateManager {
         }
 
         this.writeDebounceTimer = setTimeout(() => {
-            this.syncToSharedStateImmediate();
+            this.syncToSharedStateImmediate().catch(err => {
+                console.error(`[GraphStateManager] Error in debounced sync: ${err instanceof Error ? err.message : String(err)}`);
+            });
         }, 100);
     }
 
-    private syncToSharedStateImmediate(): void {
+    private async syncToSharedStateImmediate(): Promise<void> {
         const stateFile = this.getSharedStateFile();
+        let releaseLock: (() => Promise<void>) | null = null;
+        
         try {
+            // Acquire file lock before writing
+            try {
+                releaseLock = await lockfile.lock(stateFile, {
+                    retries: {
+                        retries: 3,
+                        minTimeout: 100,
+                        maxTimeout: 500,
+                        randomize: true
+                    },
+                    stale: 3000, // 3 second stale timeout
+                    realpath: false
+                });
+                console.error(`[GraphStateManager] ✓ Lock acquired`);
+            } catch (lockErr) {
+                console.error(`[GraphStateManager] ⚠️  Failed to acquire lock, proceeding without lock: ${lockErr instanceof Error ? lockErr.message : String(lockErr)}`);
+                // Proceed without lock in case of lock acquisition failure
+            }
+            
             // Read existing state to preserve extension-owned fields
             let existingState: any = null;
             if (fs.existsSync(stateFile)) {
@@ -270,6 +388,7 @@ export class GraphStateManager {
 
             // Create shared state object
             const sharedState = {
+                schemaVersion: SCHEMA_VERSION,
                 version: this.stateVersion,
                 timestamp: Date.now(),
                 source: 'mcp-server',
@@ -289,7 +408,22 @@ export class GraphStateManager {
             fs.renameSync(tempFile, stateFile);
 
             console.error(`[GraphStateManager] Synced state version ${this.stateVersion} (preserved extension properties)`);
+            
+            // Release lock
+            if (releaseLock) {
+                await releaseLock();
+                console.error(`[GraphStateManager] ✓ Lock released`);
+            }
         } catch (err) {
+            // Ensure lock is released even on error
+            if (releaseLock) {
+                try {
+                    await releaseLock();
+                } catch (releaseErr) {
+                    console.error(`[GraphStateManager] ⚠️  Failed to release lock: ${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`);
+                }
+            }
+            
             console.error(`[GraphStateManager] Error syncing to shared state: ${err instanceof Error ? err.message : String(err)}`);
             if (err instanceof Error && err.stack) {
                 console.error(`[GraphStateManager] Stack: ${err.stack}`);

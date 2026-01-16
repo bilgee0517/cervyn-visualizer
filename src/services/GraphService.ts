@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { GraphData, GraphNode, GraphEdge, Layer, ProposedChange, NodeHistoryEvent } from '../types';
 import { StateSyncService } from './StateSyncService';
 import { log, debug, error as logError } from '../logger';
-import { getSharedStateFile, createEmptySharedState, MCP_OWNED_PROPERTIES } from '../config/shared-state-config';
+import { getSharedStateFile, createEmptySharedState, MCP_OWNED_PROPERTIES, SharedGraphState } from '../config/shared-state-config';
 import { 
     GraphStateError, 
     ValidationError, 
@@ -14,9 +14,11 @@ import {
     handleError, 
     generateCorrelationId 
 } from '../utils/error-handler';
+import { conflictResolutionService } from './ConflictResolutionService';
 
 export class GraphService {
     private stateSyncService: StateSyncService;
+    private lastSyncedState: SharedGraphState | null = null; // For three-way merge
     private onGraphChangedEmitter = new vscode.EventEmitter<void>();
     public readonly onGraphChanged = this.onGraphChangedEmitter.event;
     
@@ -518,6 +520,166 @@ export class GraphService {
         this.syncToSharedState();
     }
 
+    /**
+     * Remove all nodes for a deleted file and mark them as deleted
+     * This ensures orphaned entries are cleaned up when files are deleted
+     */
+    public removeNodesForFile(filePath: string, layer?: Layer): void {
+        const lyr = layer || this.currentLayer;
+        const graph = this.graphs[lyr];
+        
+        log(`[GraphService] Removing nodes for deleted file: ${filePath}`);
+        
+        // Find all nodes related to this file (file node + its children like classes/functions)
+        const nodesToRemove = graph.nodes.filter(n => n.data.path === filePath);
+        
+        if (nodesToRemove.length === 0) {
+            debug(`[GraphService] No nodes found for file: ${filePath}`);
+            return;
+        }
+        
+        const nodeIdsToRemove = new Set(nodesToRemove.map(n => n.data.id));
+        
+        // Also find child nodes (nodes that have one of the file nodes as parent)
+        const fileNodeIds = new Set(nodesToRemove.filter(n => n.data.type === 'file').map(n => n.data.id));
+        const childNodes = graph.nodes.filter(n => n.data.parent && fileNodeIds.has(n.data.parent));
+        for (const childNode of childNodes) {
+            nodeIdsToRemove.add(childNode.data.id);
+        }
+        
+        // Remove edges connected to removed nodes
+        const edgesToRemove = graph.edges.filter(e => 
+            nodeIdsToRemove.has(e.data.source) || nodeIdsToRemove.has(e.data.target)
+        );
+        
+        log(`[GraphService] Removing ${nodeIdsToRemove.size} nodes and ${edgesToRemove.length} edges for file: ${filePath}`);
+        
+        // Mark nodes as deleted
+        for (const nodeId of nodeIdsToRemove) {
+            this.markNodeAsDeleted(nodeId, lyr);
+        }
+        
+        // Remove from in-memory graph
+        graph.nodes = graph.nodes.filter(n => !nodeIdsToRemove.has(n.data.id));
+        graph.edges = graph.edges.filter(e => {
+            const edgeId = e.data.id;
+            return !edgesToRemove.some(removed => removed.data.id === edgeId);
+        });
+        
+        // Record in history for each removed node
+        for (const nodeId of nodeIdsToRemove) {
+            this.recordNodeHistory(lyr, nodeId, {
+                timestamp: Date.now(),
+                action: 'deleted',
+                details: `File deleted: ${filePath}`
+            });
+        }
+        
+        // Sync to shared state
+        this.syncToSharedState();
+        
+        // Fire incremental change event
+        this.onGraphChangedIncrementalEmitter.fire({
+            layer: lyr,
+            addedNodes: [],
+            addedEdges: [],
+            removedNodeIds: Array.from(nodeIdsToRemove),
+            removedEdgeIds: edgesToRemove.map(e => e.data.id),
+            fullGraph: graph
+        });
+        
+        log(`[GraphService] ✓ Removed nodes for deleted file: ${filePath}`);
+    }
+
+    /**
+     * Reconcile in-memory graph state with actual file system
+     * Removes orphaned nodes that point to non-existent files
+     * Should be called on startup and after major file system changes
+     */
+    public async reconcileStateWithFilesystem(): Promise<void> {
+        const correlationId = generateCorrelationId();
+        log('[GraphService] Starting state reconciliation with file system...', () => ({ correlationId }));
+        
+        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        let totalOrphanedNodes = 0;
+        let totalOrphanedEdges = 0;
+        
+        for (const layer of layers) {
+            const graph = this.graphs[layer];
+            const orphanedNodeIds = new Set<string>();
+            
+            // Check each node that has a path (file nodes)
+            for (const node of graph.nodes) {
+                if (node.data.path) {
+                    // Skip agent-added nodes (they don't correspond to real files)
+                    if (node.data.isAgentAdded) {
+                        continue;
+                    }
+                    
+                    // Check if file exists
+                    if (!fs.existsSync(node.data.path)) {
+                        debug(`[GraphService] Found orphaned node: ${node.data.id} (path: ${node.data.path})`, () => ({ correlationId }));
+                        orphanedNodeIds.add(node.data.id);
+                        
+                        // Also mark child nodes as orphaned
+                        if (node.data.type === 'file') {
+                            const childNodes = graph.nodes.filter(n => n.data.parent === node.data.id);
+                            for (const childNode of childNodes) {
+                                orphanedNodeIds.add(childNode.data.id);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (orphanedNodeIds.size === 0) {
+                debug(`[GraphService] No orphaned nodes found in ${layer} layer`, () => ({ correlationId }));
+                continue;
+            }
+            
+            // Remove orphaned edges
+            const orphanedEdges = graph.edges.filter(e => 
+                orphanedNodeIds.has(e.data.source) || orphanedNodeIds.has(e.data.target)
+            );
+            
+            log(`[GraphService] Found ${orphanedNodeIds.size} orphaned nodes and ${orphanedEdges.length} orphaned edges in ${layer} layer`, () => ({ correlationId }));
+            
+            // Mark nodes as deleted
+            for (const nodeId of orphanedNodeIds) {
+                this.markNodeAsDeleted(nodeId, layer);
+            }
+            
+            // Remove orphaned nodes and edges from graph
+            graph.nodes = graph.nodes.filter(n => !orphanedNodeIds.has(n.data.id));
+            graph.edges = graph.edges.filter(e => {
+                const edgeId = e.data.id;
+                return !orphanedEdges.some(removed => removed.data.id === edgeId);
+            });
+            
+            // Record in history
+            for (const nodeId of orphanedNodeIds) {
+                this.recordNodeHistory(layer, nodeId, {
+                    timestamp: Date.now(),
+                    action: 'deleted',
+                    details: 'Orphaned node removed during startup reconciliation'
+                });
+            }
+            
+            totalOrphanedNodes += orphanedNodeIds.size;
+            totalOrphanedEdges += orphanedEdges.length;
+        }
+        
+        if (totalOrphanedNodes > 0) {
+            log(`[GraphService] ✓ Reconciliation complete: removed ${totalOrphanedNodes} orphaned nodes and ${totalOrphanedEdges} orphaned edges across all layers`, () => ({ correlationId }));
+            // Sync to shared state
+            this.syncToSharedState();
+            // Fire graph change event
+            this.batchGraphChangeEvent();
+        } else {
+            log('[GraphService] ✓ Reconciliation complete: no orphaned nodes found', () => ({ correlationId }));
+        }
+    }
+
 
     // ============================================================================
     // SHARED STATE SYNCHRONIZATION (Phase 3)
@@ -581,29 +743,151 @@ export class GraphService {
 
     /**
      * Handle external state changes (from MCP server or other instances)
-     * Uses smart merging based on property ownership
+     * Uses three-way merge with property ownership awareness
      */
-    private handleExternalStateChange(sharedState: any): void {
+    private handleExternalStateChange(sharedState: SharedGraphState): void {
         debug(`[GraphService] Handling external state change (version ${sharedState.version}, source: ${sharedState.source})`);
         
         try {
-            // Update current layer if changed
-            if (sharedState.currentLayer) {
-                this.currentLayer = sharedState.currentLayer;
-            }
-
-            // Smart merge based on source
-            if (sharedState.source === 'mcp-server') {
-                // MCP enriched the graph - merge only MCP-owned properties
-                this.mergeExternalChanges(sharedState);
+            // Create current local state for merge
+            const localState = this.getCurrentStateSnapshot();
+            
+            // Check if we need conflict resolution
+            if (conflictResolutionService.hasConflicts(localState, sharedState)) {
+                log(`[GraphService] Conflicts detected, performing three-way merge...`);
+                
+                // Perform three-way merge
+                const { mergedState, conflicts, stats } = conflictResolutionService.mergeStates(
+                    this.lastSyncedState,
+                    localState,
+                    sharedState
+                );
+                
+                if (conflicts.length > 0) {
+                    log(`[GraphService] ✓ Resolved ${conflicts.length} conflicts during merge`, () => ({
+                        nodesProcessed: stats.nodesProcessed,
+                        conflictsResolved: stats.conflictsResolved
+                    }));
+                }
+                
+                // Apply merged state
+                this.applyMergedState(mergedState);
+                
+                // Update last synced state
+                this.lastSyncedState = conflictResolutionService.createMergeBase(mergedState);
             } else {
-                // Another extension instance - full replace (rare case)
-                this.applyFullGraphUpdate(sharedState);
+                // No conflicts - apply simple merge
+                if (sharedState.source === 'mcp-server') {
+                    // MCP enriched the graph - merge only MCP-owned properties
+                    this.mergeExternalChanges(sharedState);
+                } else {
+                    // Another extension instance - full replace (rare case)
+                    this.applyFullGraphUpdate(sharedState);
+                }
+                
+                // Update last synced state
+                this.lastSyncedState = conflictResolutionService.createMergeBase(sharedState);
             }
 
         } catch (err) {
             logError(`[GraphService] Error handling external state change`, err);
         }
+    }
+
+    /**
+     * Get current state as a snapshot for merge operations
+     */
+    private getCurrentStateSnapshot(): SharedGraphState {
+        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const proposedChangesArray: any = {};
+        const nodeHistoryObject: any = {};
+        const deletedNodesArray: any = {};
+        
+        for (const layer of layers) {
+            proposedChangesArray[layer] = Array.from(this.proposedChangesByLayer[layer].values());
+            
+            const historyMap = this.nodeHistoryByLayer[layer];
+            nodeHistoryObject[layer] = {};
+            for (const [nodeId, events] of historyMap.entries()) {
+                nodeHistoryObject[layer][nodeId] = events;
+            }
+            
+            deletedNodesArray[layer] = Array.from(this.deletedNodeIds[layer]);
+        }
+
+        return {
+            schemaVersion: 1,
+            version: 0, // Will be set during merge
+            timestamp: Date.now(),
+            source: 'vscode-extension',
+            currentLayer: this.currentLayer,
+            agentOnlyMode: false,
+            graphs: this.graphs,
+            proposedChanges: proposedChangesArray,
+            nodeHistory: nodeHistoryObject,
+            deletedNodes: deletedNodesArray
+        };
+    }
+
+    /**
+     * Apply merged state after conflict resolution
+     */
+    private applyMergedState(mergedState: SharedGraphState): void {
+        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        
+        // Apply graphs
+        for (const layer of layers) {
+            if (mergedState.graphs && mergedState.graphs[layer]) {
+                this.graphs[layer] = JSON.parse(JSON.stringify(mergedState.graphs[layer]));
+            }
+        }
+
+        // Apply current layer
+        if (mergedState.currentLayer) {
+            this.currentLayer = mergedState.currentLayer;
+        }
+
+        // Apply proposed changes
+        for (const layer of layers) {
+            this.proposedChangesByLayer[layer].clear();
+            const changes = mergedState.proposedChanges?.[layer] || [];
+            for (const change of changes) {
+                this.proposedChangesByLayer[layer].set(change.nodeId, change);
+            }
+        }
+
+        // Apply node history
+        if (mergedState.nodeHistory) {
+            for (const layer of layers) {
+                this.nodeHistoryByLayer[layer].clear();
+                const history = mergedState.nodeHistory[layer];
+                if (history) {
+                    for (const [nodeId, events] of Object.entries(history)) {
+                        if (Array.isArray(events)) {
+                            this.nodeHistoryByLayer[layer].set(nodeId, events as NodeHistoryEvent[]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply deleted nodes
+        if (mergedState.deletedNodes) {
+            for (const layer of layers) {
+                this.deletedNodeIds[layer].clear();
+                const deleted = mergedState.deletedNodes[layer];
+                if (deleted) {
+                    for (const nodeId of deleted) {
+                        this.deletedNodeIds[layer].add(nodeId);
+                    }
+                }
+            }
+        }
+
+        // Fire full graph change event
+        this.batchGraphChangeEvent();
+        
+        debug(`[GraphService] Applied merged state after conflict resolution`);
     }
 
     /**

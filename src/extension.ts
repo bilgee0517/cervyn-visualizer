@@ -7,6 +7,7 @@ import { handleError, errorBoundary, generateCorrelationId } from './utils/error
 import { RendererFactory } from './renderers/RendererFactory';
 import { IGraphRenderer } from './renderers/IGraphRenderer';
 import { ConfigurationError } from './errors';
+import { stateBackupService } from './services/StateBackupService';
 
 let rendererFactory: RendererFactory;
 let graphViewProvider: IGraphRenderer;
@@ -27,9 +28,18 @@ export function activate(context: vscode.ExtensionContext) {
         const codeAnalyzer = new CodeAnalyzer();
         
         log('Services initialized', () => ({ correlationId }));
+        
+        // Reconcile state with file system on startup (prune orphaned entries)
+        graphService.reconcileStateWithFilesystem().catch(err => {
+            handleError(err, {
+                component: 'Extension',
+                operation: 'reconcileStateWithFilesystem',
+                correlationId: generateCorrelationId()
+            });
+        });
 
-        // Initialize renderer factory
-        rendererFactory = new RendererFactory(context.extensionUri, graphService, codeAnalyzer);
+        // Initialize renderer factory with extension context for state persistence
+        rendererFactory = new RendererFactory(context.extensionUri, graphService, codeAnalyzer, context);
         
         // Get initial renderer (will auto-select based on config)
         graphViewProvider = rendererFactory.getRenderer();
@@ -305,6 +315,70 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // Recovery command for restoring state from backups
+    context.subscriptions.push(
+        vscode.commands.registerCommand('codebaseVisualizer.recoverState', async () => {
+            log('[Extension] recoverState command called');
+            try {
+                const backups = await stateBackupService.listBackups();
+                
+                if (backups.length === 0) {
+                    vscode.window.showInformationMessage('No backups available');
+                    return;
+                }
+                
+                // Show backup list as quick pick
+                const items = backups.map(backup => ({
+                    label: backup.filename,
+                    description: `${(backup.size / 1024).toFixed(2)} KB`,
+                    detail: `Created: ${backup.timestamp.toLocaleString()}`,
+                    backup: backup
+                }));
+                
+                const selected = await vscode.window.showQuickPick(items, {
+                    placeHolder: `Select a backup to restore (${backups.length} available)`,
+                    canPickMany: false
+                });
+                
+                if (!selected) {
+                    return; // User cancelled
+                }
+                
+                // Confirm restoration
+                const confirm = await vscode.window.showWarningMessage(
+                    `Restore state from backup: ${selected.label}?\n\nThis will replace the current state. A safety backup will be created.`,
+                    { modal: true },
+                    'Restore', 'Cancel'
+                );
+                
+                if (confirm !== 'Restore') {
+                    return;
+                }
+                
+                // Restore the backup
+                await stateBackupService.restoreBackup(selected.backup.fullPath);
+                
+                vscode.window.showInformationMessage(
+                    `State restored from backup: ${selected.label}. Reloading...`
+                );
+                
+                // Refresh the graph view to show restored state
+                await graphViewProvider.refresh();
+                
+                log('[Extension] State recovered successfully');
+            } catch (err) {
+                handleError(err, {
+                    component: 'Extension',
+                    operation: 'recoverState',
+                    correlationId: generateCorrelationId()
+                }, true);
+                vscode.window.showErrorMessage(
+                    `Failed to recover state: ${err instanceof Error ? err.message : String(err)}`
+                );
+            }
+        })
+    );
+
     // Watch for file changes and auto-refresh
     const config = vscode.workspace.getConfiguration('codebaseVisualizer');
     if (config.get('autoRefresh')) {
@@ -314,7 +388,7 @@ export function activate(context: vscode.ExtensionContext) {
         let fileChangeDebounceTimer: NodeJS.Timeout | undefined;
         const pendingFileChanges = new Set<string>(); // Track which files changed
         
-        const handleFileChange = async (uri: vscode.Uri) => {
+        const handleFileChange = async (uri: vscode.Uri, eventType: 'change' | 'create' | 'delete') => {
             const filePath = uri.fsPath;
             pendingFileChanges.add(filePath);
             
@@ -329,7 +403,7 @@ export function activate(context: vscode.ExtensionContext) {
                 pendingFileChanges.clear();
                 fileChangeDebounceTimer = undefined;
                 
-                log(`[Extension] Processing ${filesToProcess.length} file change(s) after debounce`);
+                log(`[Extension] Processing ${filesToProcess.length} file change(s) after debounce (event: ${eventType})`);
                 
                 // Process the most recent file (or all if needed)
                 // For now, process the last changed file to avoid multiple analyses
@@ -337,6 +411,7 @@ export function activate(context: vscode.ExtensionContext) {
                 
                 try {
                     // Use incremental update if file path is available
+                    // refreshIncremental will detect if file doesn't exist and call removeNodesForFile
                     await graphViewProvider.refresh(fileToProcess);
                 } catch (error) {
                     log(`[Extension] Error processing file change: ${error}`);
@@ -344,9 +419,9 @@ export function activate(context: vscode.ExtensionContext) {
             }, 500); // 500ms debounce
         };
         
-        watcher.onDidChange(handleFileChange);
-        watcher.onDidCreate(handleFileChange);
-        watcher.onDidDelete(handleFileChange);
+        watcher.onDidChange((uri) => handleFileChange(uri, 'change'));
+        watcher.onDidCreate((uri) => handleFileChange(uri, 'create'));
+        watcher.onDidDelete((uri) => handleFileChange(uri, 'delete'));
         context.subscriptions.push(watcher);
         
         // Cleanup timer on deactivation

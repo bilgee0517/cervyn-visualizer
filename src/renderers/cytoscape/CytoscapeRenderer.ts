@@ -10,6 +10,7 @@ import { CYTOSCAPE_STYLES } from '../../config/cytoscape-styles';
 import { getLayoutConfig } from '../../config/layout-config';
 import { WebviewError, FileSystemError } from '../../errors';
 import { handleError, errorBoundary, generateCorrelationId } from '../../utils/error-handler';
+import { createWebviewStatePersistence, WebviewStatePersistence } from '../../services/WebviewStatePersistence';
 
 /**
  * Cytoscape.js-based graph renderer
@@ -20,12 +21,18 @@ export class CytoscapeRenderer implements IGraphRenderer {
     private currentLayout: LayoutType = 'fcose';
     private currentLayer: Layer = 'implementation';
     private previousGraphNodeIds: Set<string> = new Set(); // Track previous graph state to detect newly added nodes from StateSync
+    private webviewState: WebviewStatePersistence;
+    private context?: vscode.ExtensionContext;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly graphService: GraphService,
-        private readonly codeAnalyzer: CodeAnalyzer
+        private readonly codeAnalyzer: CodeAnalyzer,
+        context?: vscode.ExtensionContext
     ) {
+        // Initialize webview state persistence
+        this.webviewState = createWebviewStatePersistence();
+        this.context = context;
         // Listen for external state changes (from MCP server) and refresh webview
         // Note: This is now only used for initial loads or internal changes
         // External structural changes use onGraphChangedIncremental to preserve zoom/state
@@ -111,6 +118,16 @@ export class CytoscapeRenderer implements IGraphRenderer {
                 case 'ready': {
                     // Webview is ready (config received and Cytoscape initialized)
                     log('[CytoscapeRenderer] Webview ready, checking for data...');
+                    
+                    // Try to restore previous webview state from extension context
+                    if (this.context) {
+                        const savedState = this.context.workspaceState.get<string>('codebaseVisualizer.webviewState');
+                        if (savedState) {
+                            log('[CytoscapeRenderer] Restoring previous webview state...');
+                            this.webviewState.deserialize(savedState);
+                        }
+                    }
+                    
                     const graphData = this.graphService.getGraph(this.currentLayer);
                     if (graphData.nodes.length === 0) {
                         log('[CytoscapeRenderer] No data yet, triggering refresh...');
@@ -118,6 +135,24 @@ export class CytoscapeRenderer implements IGraphRenderer {
                     } else {
                         log('[CytoscapeRenderer] Data exists, sending to webview...');
                         this.updateWebview(false); // false = not from StateSync
+                    }
+                    break;
+                }
+                case 'stateChanged': {
+                    // Webview state changed (zoom, pan, etc.)
+                    if (data.state) {
+                        this.webviewState.updateState(data.state);
+                        // Persist to extension workspace state
+                        if (this.context) {
+                            this.context.workspaceState.update(
+                                'codebaseVisualizer.webviewState',
+                                this.webviewState.serialize()
+                            );
+                        }
+                        log('[CytoscapeRenderer] Webview state persisted', () => ({
+                            zoom: data.state.zoom,
+                            pan: data.state.pan
+                        }));
                     }
                     break;
                 }
@@ -262,6 +297,14 @@ export class CytoscapeRenderer implements IGraphRenderer {
         try {
             log(`\n[CytoscapeRenderer] Starting incremental refresh for: ${changedFilePath}`);
             
+            // Check if file exists (it may have been deleted)
+            if (!fs.existsSync(changedFilePath)) {
+                log(`[CytoscapeRenderer] File does not exist (deleted): ${changedFilePath}`);
+                // Remove nodes for deleted file
+                this.graphService.removeNodesForFile(changedFilePath, this.currentLayer);
+                return; // GraphService will fire incremental change event
+            }
+            
             // Analyze only the changed file
             const fileGraphData = await this.codeAnalyzer.analyzeFileIncremental(
                 changedFilePath,
@@ -364,6 +407,16 @@ export class CytoscapeRenderer implements IGraphRenderer {
 
     public setLayout(layout: LayoutType) {
         this.currentLayout = layout;
+        this.webviewState.setLayout(layout);
+        
+        // Persist to extension workspace state
+        if (this.context) {
+            this.context.workspaceState.update(
+                'codebaseVisualizer.webviewState',
+                this.webviewState.serialize()
+            );
+        }
+        
         this._view?.webview.postMessage({
             type: 'setLayout',
             layout: layout
@@ -373,6 +426,16 @@ export class CytoscapeRenderer implements IGraphRenderer {
     public setLayer(layer: Layer) {
         this.currentLayer = layer;
         this.graphService.setCurrentLayer(layer);
+        this.webviewState.setLayer(layer);
+        
+        // Persist to extension workspace state
+        if (this.context) {
+            this.context.workspaceState.update(
+                'codebaseVisualizer.webviewState',
+                this.webviewState.serialize()
+            );
+        }
+        
         this.updateWebview(false); // false = not from StateSync
     }
 
@@ -422,13 +485,17 @@ export class CytoscapeRenderer implements IGraphRenderer {
             }
             log(`[CytoscapeRenderer] Active file: ${activeFilePath || 'none'}`);
             
+            // Include persisted webview state in the update
+            const persistedState = this.webviewState.getState();
+            
             this._view.webview.postMessage({
                 type: 'updateGraph',
                 graph: graphData,
                 layout: this.currentLayout,
                 layer: this.currentLayer,
                 activeFilePath: activeFilePath,
-                newlyAddedNodeIds: fromStateSync ? newlyAddedNodeIds : undefined
+                newlyAddedNodeIds: fromStateSync ? newlyAddedNodeIds : undefined,
+                persistedState: persistedState // Include persisted zoom/pan state
             });
         } else {
             log('[CytoscapeRenderer] Cannot update webview - _view is null');

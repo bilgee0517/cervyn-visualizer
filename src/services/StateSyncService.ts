@@ -11,7 +11,9 @@ import {
     getSharedStateDir, 
     getSharedStateFile, 
     SharedGraphState, 
-    createEmptySharedState 
+    createEmptySharedState,
+    SCHEMA_VERSION,
+    migrateStateSchema
 } from '../config/shared-state-config';
 import { log, error as logError } from '../logger';
 import { 
@@ -24,6 +26,9 @@ import {
     handleError, 
     generateCorrelationId 
 } from '../utils/error-handler';
+import { fileLockManager, LockAcquisitionError } from '../utils/file-locking';
+import { stateBackupService } from './StateBackupService';
+import { statePruningService } from './StatePruningService';
 
 export class StateSyncService {
     private fileWatcher?: fs.FSWatcher;
@@ -39,7 +44,10 @@ export class StateSyncService {
     constructor() {
         log(`[StateSyncService] Constructor called`);
         this.ensureStateDirectory();
-        this.initializeStateFile();
+        // Initialize state file asynchronously
+        this.initializeStateFile().catch(err => {
+            log(`[StateSyncService] Error during initialization: ${err instanceof Error ? err.message : String(err)}`);
+        });
         log(`[StateSyncService] Initialized. State file: ${getSharedStateFile()}`);
     }
 
@@ -77,7 +85,7 @@ export class StateSyncService {
     /**
      * Initialize the state file if it doesn't exist
      */
-    private initializeStateFile(): void {
+    private async initializeStateFile(): Promise<void> {
         const stateFile = getSharedStateFile();
         log(`[StateSyncService] Checking state file: ${stateFile}`);
         
@@ -85,7 +93,7 @@ export class StateSyncService {
             if (!fs.existsSync(stateFile)) {
                 log(`[StateSyncService] State file does not exist, creating empty state...`);
                 const emptyState = createEmptySharedState();
-                this.writeStateInternal(emptyState);
+                await this.writeStateInternal(emptyState);
                 this.lastKnownVersion = emptyState.version;
                 log(`[StateSyncService] ✓ Initialized state file: ${stateFile} (version ${emptyState.version})`);
             } else {
@@ -278,7 +286,11 @@ export class StateSyncService {
             if (!fs.existsSync(stateFile)) {
                 log('[StateSyncService] State file does not exist, creating empty state');
                 const emptyState = createEmptySharedState();
-                this.writeStateInternal(emptyState);
+                // Note: Using sync write here to avoid async in readStateResult
+                // The lock will be attempted but won't block if it fails
+                const tempFile = stateFile + '.tmp';
+                fs.writeFileSync(tempFile, JSON.stringify(emptyState, null, 2), 'utf-8');
+                fs.renameSync(tempFile, stateFile);
                 return Ok(emptyState);
             }
 
@@ -294,37 +306,76 @@ export class StateSyncService {
             try {
                 state = JSON.parse(fileContent);
             } catch (err) {
-                return Err(new ParsingError(
+                const parseError = new ParsingError(
                     'Failed to parse state file as JSON',
                     stateFile,
                     undefined,
                     undefined,
                     { correlationId, fileSize: fileContent.length },
                     err instanceof Error ? err : undefined
-                ));
+                );
+                // Attempt to restore from backup
+                const restoredState = this.attemptBackupRestoration(correlationId);
+                if (restoredState) {
+                    log(`[StateSyncService] ✓ Restored state from backup after parse error`, () => ({ correlationId }));
+                    return Ok(restoredState);
+                }
+                return Err(parseError);
             }
             
             // Validate structure
             if (!state.graphs || typeof state.graphs !== 'object') {
-                return Err(new GraphStateError(
+                const validationError = new GraphStateError(
                     'Invalid state structure: missing or invalid graphs field',
                     'validate',
                     { correlationId, hasGraphs: !!state.graphs }
-                ));
+                );
+                // Attempt to restore from backup
+                const restoredState = this.attemptBackupRestoration(correlationId);
+                if (restoredState) {
+                    log(`[StateSyncService] ✓ Restored state from backup after validation error`, () => ({ correlationId }));
+                    return Ok(restoredState);
+                }
+                return Err(validationError);
             }
             
             if (typeof state.version !== 'number') {
-                return Err(new GraphStateError(
+                const validationError = new GraphStateError(
                     'Invalid state structure: missing or invalid version field',
                     'validate',
                     { correlationId, hasVersion: !!state.version, versionType: typeof state.version }
-                ));
+                );
+                // Attempt to restore from backup
+                const restoredState = this.attemptBackupRestoration(correlationId);
+                if (restoredState) {
+                    log(`[StateSyncService] ✓ Restored state from backup after validation error`, () => ({ correlationId }));
+                    return Ok(restoredState);
+                }
+                return Err(validationError);
             }
             
             log(`[StateSyncService] ✓ Successfully parsed state (version ${state.version})`, () => ({
                 correlationId,
                 version: state.version
             }));
+            
+            // Apply schema migrations if needed
+            const currentSchemaVersion = state.schemaVersion || 0;
+            if (currentSchemaVersion < SCHEMA_VERSION) {
+                log(`[StateSyncService] State needs schema migration (current: ${currentSchemaVersion}, target: ${SCHEMA_VERSION})`, () => ({ correlationId }));
+                state = migrateStateSchema(state);
+                
+                // Write migrated state back to file
+                try {
+                    const tempFile = stateFile + '.tmp';
+                    fs.writeFileSync(tempFile, JSON.stringify(state, null, 2), 'utf-8');
+                    fs.renameSync(tempFile, stateFile);
+                    log(`[StateSyncService] ✓ Migrated state written to file`, () => ({ correlationId }));
+                } catch (err) {
+                    logError(`[StateSyncService] Warning: Failed to write migrated state: ${err instanceof Error ? err.message : String(err)}`, err, () => ({ correlationId }));
+                    // Continue with in-memory migrated state even if write fails
+                }
+            }
             
             // Update last known version
             if (state.version > this.lastKnownVersion) {
@@ -333,13 +384,59 @@ export class StateSyncService {
             
             return Ok(state as SharedGraphState);
         } catch (err) {
-            return Err(new FileSystemError(
+            const fsError = new FileSystemError(
                 `Failed to read state file: ${stateFile}`,
                 stateFile,
                 'read',
                 { correlationId },
                 err instanceof Error ? err : undefined
-            ));
+            );
+            // Attempt to restore from backup
+            const restoredState = this.attemptBackupRestoration(correlationId);
+            if (restoredState) {
+                log(`[StateSyncService] ✓ Restored state from backup after file system error`, () => ({ correlationId }));
+                return Ok(restoredState);
+            }
+            return Err(fsError);
+        }
+    }
+
+    /**
+     * Attempt to restore state from latest backup
+     * Returns the restored state or null if restoration failed
+     */
+    private attemptBackupRestoration(correlationId: string): SharedGraphState | null {
+        try {
+            log(`[StateSyncService] Attempting to restore from backup...`, () => ({ correlationId }));
+            
+            // Try to restore latest backup (synchronously)
+            const restored = stateBackupService.restoreLatestBackupSync();
+            if (!restored) {
+                log(`[StateSyncService] No backups available or restoration failed`, () => ({ correlationId }));
+                return null;
+            }
+            
+            // Read the restored file
+            const stateFile = getSharedStateFile();
+            if (!fs.existsSync(stateFile)) {
+                logError(`[StateSyncService] Backup restoration failed - file still doesn't exist`, undefined, () => ({ correlationId }));
+                return null;
+            }
+            
+            const fileContent = fs.readFileSync(stateFile, 'utf-8');
+            const state = JSON.parse(fileContent);
+            
+            // Validate the restored state
+            if (!state.graphs || typeof state.graphs !== 'object' || typeof state.version !== 'number') {
+                logError(`[StateSyncService] Restored backup has invalid structure`, undefined, () => ({ correlationId }));
+                return null;
+            }
+            
+            log(`[StateSyncService] ✓ Successfully restored from backup (version ${state.version})`, () => ({ correlationId }));
+            return state as SharedGraphState;
+        } catch (err) {
+            logError(`[StateSyncService] Failed to restore from backup: ${err instanceof Error ? err.message : String(err)}`, err, () => ({ correlationId }));
+            return null;
         }
     }
     
@@ -377,7 +474,7 @@ export class StateSyncService {
     /**
      * Write state immediately without debouncing
      */
-    public writeStateImmediate(state: Partial<SharedGraphState>): void {
+    public async writeStateImmediate(state: Partial<SharedGraphState>): Promise<void> {
         const correlationId = generateCorrelationId();
         
         try {
@@ -393,12 +490,24 @@ export class StateSyncService {
                 source: 'vscode-extension'
             };
 
-            this.writeStateInternal(mergedState);
-            this.lastKnownVersion = mergedState.version;
+            // Check if pruning is needed before writing
+            let finalState = mergedState;
+            if (statePruningService.needsPruning(mergedState)) {
+                log(`[StateSyncService] State needs pruning, applying...`, () => ({ correlationId }));
+                const { prunedState, stats } = statePruningService.pruneState(mergedState);
+                finalState = prunedState;
+                log(`[StateSyncService] ✓ State pruned: ${stats.historyEventsPruned} history events, ${stats.deletedNodesPruned} deleted nodes`, () => ({
+                    correlationId,
+                    stats
+                }));
+            }
             
-            log(`[StateSyncService] Wrote state version ${mergedState.version}`, () => ({
+            await this.writeStateInternal(finalState);
+            this.lastKnownVersion = finalState.version;
+            
+            log(`[StateSyncService] Wrote state version ${finalState.version}`, () => ({
                 correlationId,
-                version: mergedState.version
+                version: finalState.version
             }));
         } catch (err) {
             const error = new FileSystemError(
@@ -413,23 +522,64 @@ export class StateSyncService {
                 component: 'StateSyncService',
                 correlationId
             }, true);
+            throw error;
         }
     }
 
     /**
      * Internal write method (sets isWriting flag to prevent feedback loop)
+     * Now includes file locking and backup before write
      */
-    private writeStateInternal(state: SharedGraphState): void {
+    private async writeStateInternal(state: SharedGraphState): Promise<void> {
         const stateFile = getSharedStateFile();
         const correlationId = generateCorrelationId();
+        let releaseLock: (() => Promise<void>) | null = null;
         
         try {
             this.isWriting = true;
+            
+            // Create backup before writing (if state file exists)
+            if (fs.existsSync(stateFile)) {
+                try {
+                    await stateBackupService.backupState();
+                } catch (backupErr) {
+                    log(`[StateSyncService] ⚠️  Backup failed, continuing with write: ${backupErr instanceof Error ? backupErr.message : String(backupErr)}`);
+                    // Continue with write even if backup fails
+                }
+            }
+            
+            // Acquire file lock before writing
+            try {
+                releaseLock = await fileLockManager.acquireLock(stateFile, {
+                    retries: {
+                        retries: 3,
+                        minTimeout: 100,
+                        maxTimeout: 500
+                    },
+                    stale: 3000 // 3 second stale timeout
+                });
+            } catch (lockErr) {
+                if (lockErr instanceof LockAcquisitionError) {
+                    log(`[StateSyncService] ⚠️  Failed to acquire lock, proceeding without lock (${lockErr.message})`);
+                    // Proceed without lock in case of lock acquisition failure
+                    // This maintains availability even if locking fails
+                } else {
+                    throw lockErr;
+                }
+            }
             
             // Write to temp file first, then rename (atomic operation)
             const tempFile = stateFile + '.tmp';
             fs.writeFileSync(tempFile, JSON.stringify(state, null, 2), 'utf-8');
             fs.renameSync(tempFile, stateFile);
+            
+            log(`[StateSyncService] ✓ State written successfully (version ${state.version})`);
+            
+            // Release lock before resetting isWriting flag
+            if (releaseLock) {
+                await releaseLock();
+                releaseLock = null;
+            }
             
             // Reset flag after file system settles
             setTimeout(() => {
@@ -438,6 +588,15 @@ export class StateSyncService {
         } catch (err) {
             this.isWriting = false;
             
+            // Ensure lock is released even on error
+            if (releaseLock) {
+                try {
+                    await releaseLock();
+                } catch (releaseErr) {
+                    log(`[StateSyncService] ⚠️  Failed to release lock: ${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`);
+                }
+            }
+            
             const error = new FileSystemError(
                 `Failed to write state file: ${stateFile}`,
                 stateFile,
@@ -445,7 +604,7 @@ export class StateSyncService {
                 { 
                     correlationId,
                     version: state.version,
-                    operation: 'atomic write'
+                    operation: 'atomic write with locking and backup'
                 },
                 err instanceof Error ? err : undefined
             );
