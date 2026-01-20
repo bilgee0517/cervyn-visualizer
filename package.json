@@ -71,6 +71,14 @@
       {
         "command": "codebaseVisualizer.clearProposedChanges",
         "title": "Cervyn Visualizer: Clear Proposed Changes"
+      },
+      {
+        "command": "codebaseVisualizer.refreshGraph",
+        "title": "Cervyn Visualizer: Full Refresh (Clear & Rebuild)"
+      },
+      {
+        "command": "codebaseVisualizer.recoverState",
+        "title": "Cervyn Visualizer: Recover State from Backup"
       }
     ],
     "viewsContainers": {
@@ -140,7 +148,12 @@
         "codebaseVisualizer.logLevel": {
           "type": "string",
           "default": "info",
-          "enum": ["debug", "info", "warn", "error"],
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
           "description": "Logging level: 'debug' (verbose, for troubleshooting), 'info' (normal operation), 'warn' (warnings only), 'error' (errors only). Lower levels improve performance by reducing log output."
         }
       }
@@ -163,9 +176,11 @@
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.1.5",
+    "@types/fs-extra": "^11.0.4",
     "@types/jest": "^29.5.14",
     "@types/jsdom": "^21.1.6",
     "@types/node": "^20.10.0",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/vscode": "1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
@@ -189,11 +204,14 @@
     "cytoscape-expand-collapse": "^4.1.0",
     "cytoscape-fcose": "^2.2.0",
     "dagre": "^0.8.5",
+    "fs-extra": "^11.3.3",
+    "proper-lockfile": "^4.1.2",
     "tree-sitter": "^0.21.1",
-    "tree-sitter-typescript": "^0.23.2",
-    "tree-sitter-python": "^0.21.0",
     "tree-sitter-go": "^0.21.0",
     "tree-sitter-java": "^0.21.0",
-    "tree-sitter-rust": "^0.21.0"
+    "tree-sitter-python": "^0.21.0",
+    "tree-sitter-rust": "^0.21.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "zod": "^4.3.5"
   }
 }

@@ -7,6 +7,7 @@
 
 import * as os from 'os';
 import * as path from 'path';
+import { log } from '../logger';
 
 /**
  * Get the shared state directory (cross-platform)
@@ -32,9 +33,16 @@ export function getStateLockFile(): string {
 }
 
 /**
+ * Current schema version for state file migrations
+ * Increment this when making breaking changes to SharedGraphState structure
+ */
+export const SCHEMA_VERSION = 1;
+
+/**
  * Shared state file schema
  */
 export interface SharedGraphState {
+    schemaVersion: number; // Schema version for migrations (incremented on breaking changes)
     version: number; // Incremented on every write for conflict detection
     timestamp: number; // Unix timestamp of last update
     source: 'mcp-server' | 'vscode-extension'; // Who made the last update
@@ -96,6 +104,38 @@ export interface SharedGraphState {
             timestamp?: number;
         }>;
     };
+    
+    // Node history per layer (tracks changes over time)
+    nodeHistory?: {
+        blueprint: Record<string, Array<{
+            timestamp: number;
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            details?: string;
+        }>>;
+        architecture: Record<string, Array<{
+            timestamp: number;
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            details?: string;
+        }>>;
+        implementation: Record<string, Array<{
+            timestamp: number;
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            details?: string;
+        }>>;
+        dependencies: Record<string, Array<{
+            timestamp: number;
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            details?: string;
+        }>>;
+    };
+    
+    // Deleted node IDs per layer
+    deletedNodes?: {
+        blueprint: string[];
+        architecture: string[];
+        implementation: string[];
+        dependencies: string[];
+    };
 }
 
 /**
@@ -103,6 +143,7 @@ export interface SharedGraphState {
  */
 export function createEmptySharedState(): SharedGraphState {
     return {
+        schemaVersion: SCHEMA_VERSION,
         version: 1,
         timestamp: Date.now(),
         source: 'vscode-extension',
@@ -119,8 +160,217 @@ export function createEmptySharedState(): SharedGraphState {
             architecture: [],
             implementation: [],
             dependencies: []
+        },
+        nodeHistory: {
+            blueprint: {},
+            architecture: {},
+            implementation: {},
+            dependencies: {}
+        },
+        deletedNodes: {
+            blueprint: [],
+            architecture: [],
+            implementation: [],
+            dependencies: []
         }
     };
+}
+
+/**
+ * Migrate state from old schema version to current version
+ * @param state The state to migrate
+ * @returns Migrated state with current schema version
+ */
+export function migrateStateSchema(state: any): SharedGraphState {
+    const fromVersion = state.schemaVersion || 0;
+    
+    if (fromVersion === SCHEMA_VERSION) {
+        return state as SharedGraphState; // Already at current version
+    }
+    
+    log(`[Schema Migration] Migrating state from schema v${fromVersion} to v${SCHEMA_VERSION}`);
+    
+    // Migration chain - apply migrations sequentially
+    let migratedState = { ...state };
+    
+    // Migration from v0 (no schemaVersion) to v1
+    if (fromVersion < 1) {
+        migratedState = migrateV0ToV1(migratedState);
+    }
+    
+    // Future migrations would go here:
+    // if (fromVersion < 2) {
+    //     migratedState = migrateV1ToV2(migratedState);
+    // }
+    
+    migratedState.schemaVersion = SCHEMA_VERSION;
+    log(`[Schema Migration] ✓ Migration complete: v${fromVersion} -> v${SCHEMA_VERSION}`);
+    
+    return migratedState as SharedGraphState;
+}
+
+/**
+ * Migrate from v0 (no schemaVersion field) to v1
+ * v1 adds: schemaVersion field, ensures all required fields exist
+ */
+function migrateV0ToV1(state: any): any {
+    const migrated = { ...state };
+    
+    // Add schemaVersion field
+    migrated.schemaVersion = 1;
+    
+    // Ensure all required fields exist with defaults
+    if (!migrated.nodeHistory) {
+        migrated.nodeHistory = {
+            blueprint: {},
+            architecture: {},
+            implementation: {},
+            dependencies: {}
+        };
+    }
+    
+    if (!migrated.deletedNodes) {
+        migrated.deletedNodes = {
+            blueprint: [],
+            architecture: [],
+            implementation: [],
+            dependencies: []
+        };
+    }
+    
+    if (!migrated.proposedChanges) {
+        migrated.proposedChanges = {
+            blueprint: [],
+            architecture: [],
+            implementation: [],
+            dependencies: []
+        };
+    }
+    
+    if (!migrated.agentOnlyMode) {
+        migrated.agentOnlyMode = false;
+    }
+    
+    log(`[Schema Migration] ✓ Migrated v0 -> v1: added schemaVersion and missing fields`);
+    
+    return migrated;
+}
+
+// ============================================================================
+// PROPERTY OWNERSHIP BOUNDARIES
+// Defines which properties are owned by Extension vs MCP Server
+// ============================================================================
+
+/**
+ * Properties owned by the VS Code Extension (derived from code analysis)
+ * These represent the actual codebase structure and should NOT be modified by MCP
+ */
+export const EXTENSION_OWNED_PROPERTIES = [
+    // Core identity
+    'id',
+    'label',
+    'type',
+    'path',
+    'fileExtension',
+    'language',
+    
+    // Hierarchy
+    'parent',
+    'isCompound',
+    'groupType',
+    'childCount',
+    'children',
+    'childNodes',
+    
+    // Code metrics (from analysis)
+    'linesOfCode',
+    'complexity',
+    'testCoverage',
+    'daysSinceLastChange',
+    'layer',
+    
+    // Visual properties (calculated from code structure)
+    'sizeMultiplier',
+    'revealThreshold',
+    
+    // Categories (from code analysis)
+    'category',
+    'isEntryPoint',
+    
+    // Content hashing
+    'chunkHash',
+    'merkleRoot'
+] as const;
+
+/**
+ * Properties owned by the MCP Server (AI agent enrichments)
+ * These represent metadata and annotations that don't affect code structure
+ */
+export const MCP_OWNED_PROPERTIES = [
+    // AI enrichments
+    'roleDescription',
+    'technology',
+    'progressStatus',
+    
+    // Change tracking (from AI agents)
+    'changeName',
+    'changeSummary',
+    'changeIntention',
+    'changeAdditionalInfo',
+    
+    // Agent tracking
+    'isAgentAdded',
+    
+    // Clustering (AI-based)
+    'clusterId',
+    'clusterColor'
+] as const;
+
+/**
+ * Shared properties that can be modified by either system
+ * Use with caution - prefer clear ownership
+ */
+export const SHARED_PROPERTIES = [
+    'shape',
+    'modified',
+    'isCollapsed'
+] as const;
+
+// Type exports for TypeScript safety
+export type ExtensionOwnedProperty = typeof EXTENSION_OWNED_PROPERTIES[number];
+export type McpOwnedProperty = typeof MCP_OWNED_PROPERTIES[number];
+export type SharedProperty = typeof SHARED_PROPERTIES[number];
+
+/**
+ * Check if a property is owned by the Extension
+ */
+export function isExtensionProperty(key: string): key is ExtensionOwnedProperty {
+    return (EXTENSION_OWNED_PROPERTIES as readonly string[]).includes(key);
+}
+
+/**
+ * Check if a property is owned by the MCP Server
+ */
+export function isMcpProperty(key: string): key is McpOwnedProperty {
+    return (MCP_OWNED_PROPERTIES as readonly string[]).includes(key);
+}
+
+/**
+ * Check if a property is shared between both systems
+ */
+export function isSharedProperty(key: string): key is SharedProperty {
+    return (SHARED_PROPERTIES as readonly string[]).includes(key);
+}
+
+/**
+ * Get the owner of a property
+ * @returns 'extension' | 'mcp' | 'shared' | 'unknown'
+ */
+export function getPropertyOwner(key: string): 'extension' | 'mcp' | 'shared' | 'unknown' {
+    if (isExtensionProperty(key)) return 'extension';
+    if (isMcpProperty(key)) return 'mcp';
+    if (isSharedProperty(key)) return 'shared';
+    return 'unknown';
 }
 
 

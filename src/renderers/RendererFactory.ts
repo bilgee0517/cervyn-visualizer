@@ -24,7 +24,8 @@ export class RendererFactory {
     constructor(
         private readonly extensionUri: vscode.Uri,
         private readonly graphService: GraphService,
-        private readonly codeAnalyzer: CodeAnalyzer
+        private readonly codeAnalyzer: CodeAnalyzer,
+        private readonly context?: vscode.ExtensionContext
     ) {
         this.config = this.loadConfig();
         log(`[RendererFactory] Initialized with Cytoscape renderer`);
@@ -50,7 +51,12 @@ export class RendererFactory {
         
         // Create new renderer
         log(`[RendererFactory] Creating Cytoscape renderer`);
-        this.currentRenderer = new CytoscapeRenderer(this.extensionUri, this.graphService, this.codeAnalyzer);
+        this.currentRenderer = new CytoscapeRenderer(
+            this.extensionUri, 
+            this.graphService, 
+            this.codeAnalyzer,
+            this.context
+        );
         
         return this.currentRenderer;
     }

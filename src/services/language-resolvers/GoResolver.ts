@@ -13,6 +13,8 @@ import { BaseLanguageResolver } from './BaseLanguageResolver';
 import { LanguageResolver, ImportInfo, ParserInfo } from './LanguageResolver';
 import { GraphNode, GraphEdge } from '../../types';
 import { log } from '../../logger';
+import { FileSystemError, ParsingError } from '../../errors';
+import { handleError } from '../../utils/error-handler';
 
 // Import Go parser
 let Go: any = null;
@@ -70,8 +72,19 @@ export class GoResolver extends BaseLanguageResolver implements LanguageResolver
                         this.modulePath = moduleMatch[1];
                         log(`[GoResolver] Found module path: ${this.modulePath}`);
                     }
-                } catch (e) {
-                    log(`[GoResolver] Could not read go.mod: ${e}`);
+                } catch (err) {
+                    const error = new FileSystemError(
+                        'Could not read go.mod',
+                        goModPath,
+                        'read',
+                        { operation: 'getEntryPoints' },
+                        err instanceof Error ? err : undefined
+                    );
+                    handleError(error, {
+                        operation: 'read go.mod',
+                        component: 'GoResolver',
+                        metadata: { goModPath }
+                    });
                 }
             }
             
@@ -318,8 +331,19 @@ export class GoResolver extends BaseLanguageResolver implements LanguageResolver
                     found.push(uri.fsPath);
                     log(`[GoResolver] Found entry point: ${path.relative(rootPath, uri.fsPath)}`);
                 }
-            } catch (e) {
-                log(`[GoResolver] Could not read ${uri.fsPath}: ${e}`);
+            } catch (err) {
+                const error = new FileSystemError(
+                    'Could not read Go file',
+                    uri.fsPath,
+                    'read',
+                    { operation: 'findEntryPoints' },
+                    err instanceof Error ? err : undefined
+                );
+                handleError(error, {
+                    operation: 'find go entry points',
+                    component: 'GoResolver',
+                    metadata: { filePath: uri.fsPath }
+                });
             }
         }
 
