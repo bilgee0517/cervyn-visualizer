@@ -180,9 +180,23 @@ export class GraphStateManager {
                     }
                 }
 
-                // Load graphs
+                // Load graphs - only load valid C4 layers, filter out legacy keys
                 if (sharedState.graphs) {
-                    this.graphs = sharedState.graphs;
+                    const validLayers: Layer[] = ['context', 'container', 'component', 'code'];
+                    // Start with empty graphs to ensure all C4 layers exist
+                    const normalizedGraphs: Record<Layer, GraphData> = {
+                        context: { nodes: [], edges: [] },
+                        container: { nodes: [], edges: [] },
+                        component: { nodes: [], edges: [] },
+                        code: { nodes: [], edges: [] }
+                    };
+                    // Only copy valid C4 layer data from loaded state
+                    for (const layer of validLayers) {
+                        if (sharedState.graphs[layer]) {
+                            normalizedGraphs[layer] = sharedState.graphs[layer];
+                        }
+                    }
+                    this.graphs = normalizedGraphs;
                 }
 
                 // Load current layer
@@ -558,10 +572,10 @@ export class GraphStateManager {
         let targetExists = false;
         
         for (const checkLayer of allLayers) {
-            if (this.graphs[checkLayer].nodes.find(n => n.data.id === edge.data.source)) {
+            if ((this.graphs[checkLayer]?.nodes ?? []).find(n => n.data.id === edge.data.source)) {
                 sourceExists = true;
             }
-            if (this.graphs[checkLayer].nodes.find(n => n.data.id === edge.data.target)) {
+            if ((this.graphs[checkLayer]?.nodes ?? []).find(n => n.data.id === edge.data.target)) {
                 targetExists = true;
             }
             if (sourceExists && targetExists) break;
