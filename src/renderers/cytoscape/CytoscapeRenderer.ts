@@ -192,9 +192,11 @@ export class CytoscapeRenderer implements IGraphRenderer {
                 }
                 case 'changeLayer': {
                     // User changed layer via dropdown in webview
-                    if (data.layer) {
+                    if (typeof data.layer === 'string' && ['context','container','component','code'].includes(data.layer)) {
                         log(`[CytoscapeRenderer] Layer change requested from webview: ${data.layer}`);
                         this.setLayer(data.layer);
+                    } else {
+                        log('[CytoscapeRenderer] Ignoring invalid layer change request');
                     }
                     break;
                 }
