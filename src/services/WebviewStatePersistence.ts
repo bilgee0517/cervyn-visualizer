@@ -214,7 +214,7 @@ export class WebviewStatePersistence {
             zoom: 1.0,
             pan: { x: 0, y: 0 },
             layout: 'fcose',
-            layer: 'implementation',
+            layer: 'code',
             collapsed: false,
             selectedNodeIds: [],
             preferences: {

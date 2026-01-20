@@ -41,41 +41,41 @@ export class GraphService {
     }>();
     public readonly onGraphChangedIncremental = this.onGraphChangedIncrementalEmitter.event;
     
-    // NOTE: Currently, only the 'implementation' layer is fully developed.
-    // Other layers (blueprint, architecture, dependencies) have basic implementations
-    // and will be enhanced with more sophisticated visualizations in future updates.
+    // C4 Model Layers: Context → Container → Component → Code
+    // NOTE: Currently, ONLY the 'code' layer (C4 Level 4) is auto-populated.
+    // Other layers are empty and will be implemented in future updates.
     private graphs: Record<Layer, GraphData> = {
-        blueprint: { nodes: [], edges: [] },
-        architecture: { nodes: [], edges: [] },
-        implementation: { nodes: [], edges: [] },
-        dependencies: { nodes: [], edges: [] }
+        context: { nodes: [], edges: [] },
+        container: { nodes: [], edges: [] },
+        component: { nodes: [], edges: [] },
+        code: { nodes: [], edges: [] }
     };
 
-    private currentLayer: Layer = 'implementation';
+    private currentLayer: Layer = 'code';
     private graphChangeBatchTimer?: NodeJS.Timeout; // Batch multiple graph change events
 
     // Proposed changes storage (per-layer) - in-memory until applied
     private proposedChangesByLayer: Record<Layer, Map<string, ProposedChange>> = {
-        blueprint: new Map(),
-        architecture: new Map(),
-        implementation: new Map(),
-        dependencies: new Map()
+        context: new Map(),
+        container: new Map(),
+        component: new Map(),
+        code: new Map()
     };
 
     // Node history tracking (per-layer)
     private nodeHistoryByLayer: Record<Layer, Map<string, NodeHistoryEvent[]>> = {
-        blueprint: new Map(),
-        architecture: new Map(),
-        implementation: new Map(),
-        dependencies: new Map()
+        context: new Map(),
+        container: new Map(),
+        component: new Map(),
+        code: new Map()
     };
 
     // Deleted node tracking (per-layer)
     private deletedNodeIds: Record<Layer, Set<string>> = {
-        blueprint: new Set(),
-        architecture: new Set(),
-        implementation: new Set(),
-        dependencies: new Set()
+        context: new Set(),
+        container: new Set(),
+        component: new Set(),
+        code: new Set()
     };
 
     constructor(private context: vscode.ExtensionContext) {
@@ -119,10 +119,10 @@ export class GraphService {
         } else {
             // Clear all layers
             this.graphs = {
-                blueprint: { nodes: [], edges: [] },
-                architecture: { nodes: [], edges: [] },
-                implementation: { nodes: [], edges: [] },
-                dependencies: { nodes: [], edges: [] }
+                context: { nodes: [], edges: [] },
+                container: { nodes: [], edges: [] },
+                component: { nodes: [], edges: [] },
+                code: { nodes: [], edges: [] }
             };
         }
         this.syncToSharedState();
@@ -218,7 +218,7 @@ export class GraphService {
             }
 
             // Migrate proposed changes
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+            const layers: Layer[] = ['context', 'container', 'component', 'code'];
             for (const layer of layers) {
                 const key = `proposedChanges-${layer}`;
                 const stored = this.context.globalState.get<Record<string, ProposedChange>>(key);
@@ -235,10 +235,10 @@ export class GraphService {
             // Migrate node history
             if (!sharedState.nodeHistory) {
                 sharedState.nodeHistory = {
-                    blueprint: {},
-                    architecture: {},
-                    implementation: {},
-                    dependencies: {}
+                    context: {},
+                    container: {},
+                    component: {},
+                    code: {}
                 };
             }
             for (const layer of layers) {
@@ -254,10 +254,10 @@ export class GraphService {
             // Migrate deleted nodes
             if (!sharedState.deletedNodes) {
                 sharedState.deletedNodes = {
-                    blueprint: [],
-                    architecture: [],
-                    implementation: [],
-                    dependencies: []
+                    context: [],
+                    container: [],
+                    component: [],
+                    code: []
                 };
             }
             for (const layer of layers) {
@@ -307,7 +307,7 @@ export class GraphService {
     private async clearGlobalStateData(): Promise<void> {
         log('[GraphService] Clearing old globalState data...');
         try {
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+            const layers: Layer[] = ['context', 'container', 'component', 'code'];
             
             // Clear graph data
             await this.context.globalState.update('graphData', undefined);
@@ -600,7 +600,7 @@ export class GraphService {
         const correlationId = generateCorrelationId();
         log('[GraphService] Starting state reconciliation with file system...', () => ({ correlationId }));
         
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         let totalOrphanedNodes = 0;
         let totalOrphanedEdges = 0;
         
@@ -703,7 +703,7 @@ export class GraphService {
             this.currentLayer = sharedState.currentLayer;
 
             // Load proposed changes
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+            const layers: Layer[] = ['context', 'container', 'component', 'code'];
             for (const layer of layers) {
                 this.proposedChangesByLayer[layer].clear();
                 for (const change of sharedState.proposedChanges[layer]) {
@@ -798,7 +798,7 @@ export class GraphService {
      * Get current state as a snapshot for merge operations
      */
     private getCurrentStateSnapshot(): SharedGraphState {
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         const proposedChangesArray: any = {};
         const nodeHistoryObject: any = {};
         const deletedNodesArray: any = {};
@@ -833,7 +833,7 @@ export class GraphService {
      * Apply merged state after conflict resolution
      */
     private applyMergedState(mergedState: SharedGraphState): void {
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         
         // Apply graphs
         for (const layer of layers) {
@@ -895,7 +895,7 @@ export class GraphService {
      * Only merges MCP-owned properties, preserves extension-owned properties
      */
     private mergeExternalChanges(external: any): void {
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         const nodeUpdatesMap = new Map<Layer, Map<string, Partial<GraphNode['data']>>>();
         
         for (const layer of layers) {
@@ -973,7 +973,7 @@ export class GraphService {
      * This is the fallback for non-MCP sources
      */
     private applyFullGraphUpdate(sharedState: any): void {
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         
         // Deep copy to ensure proper data structure
         for (const layer of layers) {
@@ -1031,7 +1031,7 @@ export class GraphService {
     private syncToSharedState(): void {
         try {
             // Convert proposed changes from Map to Array
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+            const layers: Layer[] = ['context', 'container', 'component', 'code'];
             const proposedChangesArray: any = {};
             const nodeHistoryObject: any = {};
             const deletedNodesArray: any = {};
@@ -1084,14 +1084,14 @@ export class GraphService {
         
         // Clear in-memory graphs
         this.graphs = {
-            blueprint: { nodes: [], edges: [] },
-            architecture: { nodes: [], edges: [] },
-            implementation: { nodes: [], edges: [] },
-            dependencies: { nodes: [], edges: [] }
+            context: { nodes: [], edges: [] },
+            container: { nodes: [], edges: [] },
+            component: { nodes: [], edges: [] },
+            code: { nodes: [], edges: [] }
         };
         
         // Clear proposed changes, node history, and deleted nodes
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         for (const layer of layers) {
             this.proposedChangesByLayer[layer].clear();
             this.nodeHistoryByLayer[layer].clear();

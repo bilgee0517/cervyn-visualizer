@@ -19,7 +19,7 @@ import { createWebviewStatePersistence, WebviewStatePersistence } from '../../se
 export class CytoscapeRenderer implements IGraphRenderer {
     private _view?: vscode.WebviewView;
     private currentLayout: LayoutType = 'fcose';
-    private currentLayer: Layer = 'implementation';
+    private currentLayer: Layer = 'code';
     private previousGraphNodeIds: Set<string> = new Set(); // Track previous graph state to detect newly added nodes from StateSync
     private webviewState: WebviewStatePersistence;
     private context?: vscode.ExtensionContext;
@@ -188,6 +188,16 @@ export class CytoscapeRenderer implements IGraphRenderer {
                             vscode.window.showErrorMessage(`Failed to refresh graph: ${error}`);
                         }
                     })();
+                    break;
+                }
+                case 'changeLayer': {
+                    // User changed layer via dropdown in webview
+                    if (typeof data.layer === 'string' && ['context','container','component','code'].includes(data.layer)) {
+                        log(`[CytoscapeRenderer] Layer change requested from webview: ${data.layer}`);
+                        this.setLayer(data.layer);
+                    } else {
+                        log('[CytoscapeRenderer] Ignoring invalid layer change request');
+                    }
                     break;
                 }
             }
@@ -435,6 +445,12 @@ export class CytoscapeRenderer implements IGraphRenderer {
                 this.webviewState.serialize()
             );
         }
+        
+        // Notify webview of layer change (updates dropdown if changed externally)
+        this._view?.webview.postMessage({
+            type: 'layerChanged',
+            layer: layer
+        });
         
         this.updateWebview(false); // false = not from StateSync
     }

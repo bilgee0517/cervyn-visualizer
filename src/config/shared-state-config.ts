@@ -35,8 +35,12 @@ export function getStateLockFile(): string {
 /**
  * Current schema version for state file migrations
  * Increment this when making breaking changes to SharedGraphState structure
+ * 
+ * Version History:
+ * - v1: Initial schema with blueprint/architecture/implementation/dependencies layers
+ * - v2: Migrated to C4 Model layers (context/container/component/code)
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * Shared state file schema
@@ -46,24 +50,24 @@ export interface SharedGraphState {
     version: number; // Incremented on every write for conflict detection
     timestamp: number; // Unix timestamp of last update
     source: 'mcp-server' | 'vscode-extension'; // Who made the last update
-    currentLayer: 'blueprint' | 'architecture' | 'implementation' | 'dependencies';
+    currentLayer: 'context' | 'container' | 'component' | 'code'; // C4 Model layers
     agentOnlyMode: boolean;
     
-    // Graph data per layer
+    // Graph data per layer (C4 Model)
     graphs: {
-        blueprint: {
+        context: {
             nodes: any[];
             edges: any[];
         };
-        architecture: {
+        container: {
             nodes: any[];
             edges: any[];
         };
-        implementation: {
+        component: {
             nodes: any[];
             edges: any[];
         };
-        dependencies: {
+        code: {
             nodes: any[];
             edges: any[];
         };
@@ -71,7 +75,7 @@ export interface SharedGraphState {
     
     // Proposed changes per layer
     proposedChanges: {
-        blueprint: Array<{
+        context: Array<{
             nodeId: string;
             name?: string;
             summary?: string;
@@ -79,7 +83,7 @@ export interface SharedGraphState {
             additionalInfo?: string;
             timestamp?: number;
         }>;
-        architecture: Array<{
+        container: Array<{
             nodeId: string;
             name?: string;
             summary?: string;
@@ -87,7 +91,7 @@ export interface SharedGraphState {
             additionalInfo?: string;
             timestamp?: number;
         }>;
-        implementation: Array<{
+        component: Array<{
             nodeId: string;
             name?: string;
             summary?: string;
@@ -95,7 +99,7 @@ export interface SharedGraphState {
             additionalInfo?: string;
             timestamp?: number;
         }>;
-        dependencies: Array<{
+        code: Array<{
             nodeId: string;
             name?: string;
             summary?: string;
@@ -107,22 +111,22 @@ export interface SharedGraphState {
     
     // Node history per layer (tracks changes over time)
     nodeHistory?: {
-        blueprint: Record<string, Array<{
+        context: Record<string, Array<{
             timestamp: number;
             action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
             details?: string;
         }>>;
-        architecture: Record<string, Array<{
+        container: Record<string, Array<{
             timestamp: number;
             action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
             details?: string;
         }>>;
-        implementation: Record<string, Array<{
+        component: Record<string, Array<{
             timestamp: number;
             action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
             details?: string;
         }>>;
-        dependencies: Record<string, Array<{
+        code: Record<string, Array<{
             timestamp: number;
             action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
             details?: string;
@@ -131,10 +135,10 @@ export interface SharedGraphState {
     
     // Deleted node IDs per layer
     deletedNodes?: {
-        blueprint: string[];
-        architecture: string[];
-        implementation: string[];
-        dependencies: string[];
+        context: string[];
+        container: string[];
+        component: string[];
+        code: string[];
     };
 }
 
@@ -147,31 +151,31 @@ export function createEmptySharedState(): SharedGraphState {
         version: 1,
         timestamp: Date.now(),
         source: 'vscode-extension',
-        currentLayer: 'implementation',
+        currentLayer: 'code', // C4 Model: code layer (was 'implementation')
         agentOnlyMode: false,
         graphs: {
-            blueprint: { nodes: [], edges: [] },
-            architecture: { nodes: [], edges: [] },
-            implementation: { nodes: [], edges: [] },
-            dependencies: { nodes: [], edges: [] }
+            context: { nodes: [], edges: [] },
+            container: { nodes: [], edges: [] },
+            component: { nodes: [], edges: [] },
+            code: { nodes: [], edges: [] }
         },
         proposedChanges: {
-            blueprint: [],
-            architecture: [],
-            implementation: [],
-            dependencies: []
+            context: [],
+            container: [],
+            component: [],
+            code: []
         },
         nodeHistory: {
-            blueprint: {},
-            architecture: {},
-            implementation: {},
-            dependencies: {}
+            context: {},
+            container: {},
+            component: {},
+            code: {}
         },
         deletedNodes: {
-            blueprint: [],
-            architecture: [],
-            implementation: [],
-            dependencies: []
+            context: [],
+            container: [],
+            component: [],
+            code: []
         }
     };
 }
@@ -198,10 +202,10 @@ export function migrateStateSchema(state: any): SharedGraphState {
         migratedState = migrateV0ToV1(migratedState);
     }
     
-    // Future migrations would go here:
-    // if (fromVersion < 2) {
-    //     migratedState = migrateV1ToV2(migratedState);
-    // }
+    // Migration from v1 to v2 (C4 Model layer names)
+    if (fromVersion < 2) {
+        migratedState = migrateV1ToV2(migratedState);
+    }
     
     migratedState.schemaVersion = SCHEMA_VERSION;
     log(`[Schema Migration] ✓ Migration complete: v${fromVersion} -> v${SCHEMA_VERSION}`);
@@ -219,7 +223,7 @@ function migrateV0ToV1(state: any): any {
     // Add schemaVersion field
     migrated.schemaVersion = 1;
     
-    // Ensure all required fields exist with defaults
+    // Ensure all required fields exist with defaults (using old layer names, will be migrated in v1->v2)
     if (!migrated.nodeHistory) {
         migrated.nodeHistory = {
             blueprint: {},
@@ -252,6 +256,72 @@ function migrateV0ToV1(state: any): any {
     }
     
     log(`[Schema Migration] ✓ Migrated v0 -> v1: added schemaVersion and missing fields`);
+    
+    return migrated;
+}
+
+/**
+ * Migrate from v1 to v2: Rename layers to C4 Model naming
+ * v1: blueprint, architecture, implementation, dependencies
+ * v2: context, container, component, code
+ */
+function migrateV1ToV2(state: any): any {
+    const migrated = { ...state };
+    
+    // Layer name mapping: old -> new (C4 Model)
+    const layerMap: Record<string, string> = {
+        'blueprint': 'context',
+        'architecture': 'container',
+        'implementation': 'code',  // Main layer: detailed code structure
+        'dependencies': 'component'
+    };
+    
+    // Migrate currentLayer
+    if (migrated.currentLayer && layerMap[migrated.currentLayer]) {
+        migrated.currentLayer = layerMap[migrated.currentLayer];
+    }
+    
+    // Migrate graphs object keys
+    if (migrated.graphs) {
+        const newGraphs: any = {};
+        for (const [oldKey, value] of Object.entries(migrated.graphs)) {
+            const newKey = layerMap[oldKey] || oldKey;
+            newGraphs[newKey] = value;
+        }
+        migrated.graphs = newGraphs;
+    }
+    
+    // Migrate proposedChanges object keys
+    if (migrated.proposedChanges) {
+        const newProposedChanges: any = {};
+        for (const [oldKey, value] of Object.entries(migrated.proposedChanges)) {
+            const newKey = layerMap[oldKey] || oldKey;
+            newProposedChanges[newKey] = value;
+        }
+        migrated.proposedChanges = newProposedChanges;
+    }
+    
+    // Migrate nodeHistory object keys
+    if (migrated.nodeHistory) {
+        const newNodeHistory: any = {};
+        for (const [oldKey, value] of Object.entries(migrated.nodeHistory)) {
+            const newKey = layerMap[oldKey] || oldKey;
+            newNodeHistory[newKey] = value;
+        }
+        migrated.nodeHistory = newNodeHistory;
+    }
+    
+    // Migrate deletedNodes object keys
+    if (migrated.deletedNodes) {
+        const newDeletedNodes: any = {};
+        for (const [oldKey, value] of Object.entries(migrated.deletedNodes)) {
+            const newKey = layerMap[oldKey] || oldKey;
+            newDeletedNodes[newKey] = value;
+        }
+        migrated.deletedNodes = newDeletedNodes;
+    }
+    
+    log(`[Schema Migration] ✓ Migrated v1 -> v2: renamed layers to C4 Model (blueprint→context, architecture→container, implementation→code, dependencies→component)`);
     
     return migrated;
 }

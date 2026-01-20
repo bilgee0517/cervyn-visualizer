@@ -58,10 +58,10 @@ export class StatePruningService {
             historyEventsPruned: 0,
             deletedNodesPruned: 0,
             layerStats: {
-                blueprint: { historyEventsPruned: 0, deletedNodesPruned: 0 },
-                architecture: { historyEventsPruned: 0, deletedNodesPruned: 0 },
-                implementation: { historyEventsPruned: 0, deletedNodesPruned: 0 },
-                dependencies: { historyEventsPruned: 0, deletedNodesPruned: 0 }
+                context: { historyEventsPruned: 0, deletedNodesPruned: 0 },
+                container: { historyEventsPruned: 0, deletedNodesPruned: 0 },
+                component: { historyEventsPruned: 0, deletedNodesPruned: 0 },
+                code: { historyEventsPruned: 0, deletedNodesPruned: 0 }
             }
         };
         
@@ -93,14 +93,14 @@ export class StatePruningService {
     ): SharedGraphState['nodeHistory'] {
         if (!nodeHistory) {
             return {
-                blueprint: {},
-                architecture: {},
-                implementation: {},
-                dependencies: {}
+                context: {},
+                container: {},
+                component: {},
+                code: {}
             };
         }
         
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         const prunedHistory: any = {};
         const now = Date.now();
         
@@ -167,14 +167,14 @@ export class StatePruningService {
     ): SharedGraphState['deletedNodes'] {
         if (!deletedNodes) {
             return {
-                blueprint: [],
-                architecture: [],
-                implementation: [],
-                dependencies: []
+                context: [],
+                container: [],
+                component: [],
+                code: []
             };
         }
         
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         const prunedDeleted: any = {};
         
         for (const layer of layers) {
@@ -209,17 +209,17 @@ export class StatePruningService {
      * Get current data size statistics for a state
      */
     public getStateStats(state: SharedGraphState): StateStats {
-        const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+        const layers: Layer[] = ['context', 'container', 'component', 'code'];
         const stats: StateStats = {
             totalNodes: 0,
             totalEdges: 0,
             totalHistoryEvents: 0,
             totalDeletedNodes: 0,
             layerBreakdown: {
-                blueprint: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
-                architecture: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
-                implementation: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
-                dependencies: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 }
+                context: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
+                container: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
+                component: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
+                code: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 }
             }
         };
         

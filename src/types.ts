@@ -39,7 +39,7 @@ export interface GraphNode {
         complexity?: number; // Cyclomatic complexity
         testCoverage?: number; // 0-100
         daysSinceLastChange?: number;
-        layer?: string; // 'frontend' | 'backend' | 'database' | 'utility'
+        layer?: string; // Architectural layer detection: 'frontend' | 'backend' | 'database' | 'utility' (NOT C4 visualization layer)
         // Clustering metadata
         clusterId?: number;
         clusterColor?: string;
@@ -62,10 +62,17 @@ export interface GraphData {
     edges: GraphEdge[];
 }
 
-// NOTE: Currently, only the 'implementation' layer is fully developed.
-// The 'blueprint', 'architecture', and 'dependencies' layers have basic implementations
-// and will be enhanced with more sophisticated visualizations in future updates.
-export type Layer = 'blueprint' | 'architecture' | 'implementation' | 'dependencies';
+// C4 Model Visualization Layers
+// Based on Simon Brown's C4 model for software architecture visualization
+// 
+// LAYER GUIDE (from high-level → detailed):
+// - context: Level 1 - External dependencies (TODO: not yet implemented)
+// - container: Level 2 - Top-level folders (TODO: not yet implemented)
+// - component: Level 3 - Files and their imports (TODO: not yet implemented)
+// - code: Level 4 - Classes, functions, methods (FULLY AUTO-POPULATED) ✅
+//
+// Currently ONLY the Code layer is auto-populated with your deep code analysis
+export type Layer = 'context' | 'container' | 'component' | 'code';
 
 export type LayoutType = 'fcose' | 'dagre' | 'concentric' | 'grid' | 'cose' | 'circle' | 'organic' | 'swimlane';
 

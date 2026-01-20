@@ -53,7 +53,13 @@ import { withErrorBoundary, safeMessageHandler } from './shared/error-boundary';
                 
                 case 'updateGraph':
                     safeMessageHandler('updateGraph', () => {
-                        logMessage(vscode, `[main.ts] updateGraph: ${message.graph?.nodes?.length || 0} nodes`);
+                        logMessage(vscode, `[main.ts] updateGraph: ${message.graph?.nodes?.length || 0} nodes, layer: ${message.layer || 'unknown'}`);
+                        
+                        // Update layer selector if layer is provided
+                        if (message.layer && cytoscapeCore) {
+                            cytoscapeCore.updateLayerSelector(message.layer);
+                        }
+                        
                         if (cytoscapeCore.isReady()) {
                             cytoscapeCore.updateGraph(message.graph, message.layout, message.activeFilePath, message.newlyAddedNodeIds);
                         } else {
@@ -153,6 +159,16 @@ import { withErrorBoundary, safeMessageHandler } from './shared/error-boundary';
                 case 'setLayout':
                     safeMessageHandler('setLayout', () => {
                         cytoscapeCore.setLayout(message.layout);
+                    }, vscode);
+                    break;
+                
+                case 'layerChanged':
+                    safeMessageHandler('layerChanged', () => {
+                        logMessage(vscode, `[main.ts] Received layerChanged message: ${message.layer}`);
+                        if (cytoscapeCore && cytoscapeCore.isReady()) {
+                            // Update the UI dropdown to reflect the new layer
+                            cytoscapeCore.updateLayerSelector(message.layer);
+                        }
                     }, vscode);
                     break;
                 

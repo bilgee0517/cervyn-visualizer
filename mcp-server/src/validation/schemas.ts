@@ -29,6 +29,46 @@ export const GetGraphArgsSchema = z.object({
 }).strict();
 
 /**
+ * Add Node tool arguments schema
+ */
+export const AddNodeArgsSchema = z.object({
+    label: z.string().min(1, 'Label is required'),
+    type: z.string().min(1, 'Type is required'),
+    layer: LayerSchema.optional(),
+    roleDescription: z.string().optional(),
+    technology: z.string().optional(),
+    path: z.string().optional(),
+    parent: z.string().optional()
+}).passthrough(); // Allow additional properties for enrichment data
+
+/**
+ * Delete Node tool arguments schema
+ */
+export const DeleteNodeArgsSchema = z.object({
+    nodeId: z.string().min(1, 'Node ID is required'),
+    layer: LayerSchema.optional()
+}).strict();
+
+/**
+ * Add Edge tool arguments schema
+ */
+export const AddEdgeArgsSchema = z.object({
+    sourceId: z.string().min(1, 'Source ID is required'),
+    targetId: z.string().min(1, 'Target ID is required'),
+    edgeType: EdgeTypeSchema.optional(),
+    label: z.string().optional(),
+    layer: LayerSchema.optional()
+}).passthrough(); // Allow additional properties
+
+/**
+ * Delete Edge tool arguments schema
+ */
+export const DeleteEdgeArgsSchema = z.object({
+    edgeId: z.string().min(1, 'Edge ID is required'),
+    layer: LayerSchema.optional()
+}).strict();
+
+/**
  * Update Node tool arguments schema
  */
 export const UpdateNodeArgsSchema = z.object({

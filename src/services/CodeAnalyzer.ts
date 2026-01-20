@@ -42,18 +42,22 @@ export class CodeAnalyzer {
         }
         
         switch (layer) {
-            case 'blueprint':
-                // NOTE: Basic implementation - will be enhanced with more sophisticated visualization later
-                return this.generateBlueprintLayer(rootPath);
-            case 'architecture':
-                // NOTE: Basic implementation - will be enhanced with more sophisticated visualization later
-                return this.generateArchitectureLayer(rootPath);
-            case 'implementation':
-                // Fully implemented layer with detailed code structure analysis
+            case 'context':
+                // C4 Level 1: External systems - APIs, databases, external services
+                // TODO: Not yet implemented - will show external dependencies
+                return { nodes: [], edges: [] };
+            case 'container':
+                // C4 Level 2: Top-level modules - major folders (src, components, services)
+                // TODO: Not yet implemented - will show high-level folder structure
+                return { nodes: [], edges: [] };
+            case 'component':
+                // C4 Level 3: Files and modules - individual files without internal details
+                // TODO: Not yet implemented - will show file structure without classes/functions
+                return { nodes: [], edges: [] };
+            case 'code':
+                // C4 Level 4: Detailed implementation - classes, functions, methods
+                // FULLY IMPLEMENTED: Your current deep code analysis
                 return this.generateImplementationLayer(rootPath);
-            case 'dependencies':
-                // NOTE: Basic implementation - will be enhanced with more sophisticated visualization later
-                return this.generateDependenciesLayer(rootPath);
             default:
                 return { nodes: [], edges: [] };
         }
@@ -93,14 +97,14 @@ export class CodeAnalyzer {
             return { nodes: [], edges: [] };
         }
 
-        // Only support implementation and architecture layers for incremental updates
-        // (they use file-level analysis, blueprint/dependencies are different)
-        if (layer !== 'implementation' && layer !== 'architecture') {
+        // Only support code and container layers for incremental updates
+        // (they use file-level analysis, context/component are different)
+        if (layer !== 'code' && layer !== 'container') {
             log(`⏭️  Incremental updates not supported for ${layer} layer, falling back to full analysis`);
             return this.analyzeWorkspace(layer);
         }
 
-        const includeSymbols = layer === 'implementation';
+        const includeSymbols = layer === 'code';
         const nodes: GraphNode[] = [];
         const edges: GraphEdge[] = [];
         const folderNodes = new Map<string, GraphNode>();

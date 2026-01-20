@@ -216,8 +216,11 @@ export class CytoscapeCore {
         );
         
         if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
-            logMessage(this.vscode, '[WARN] updateGraph received empty or invalid graphData');
+            logMessage(this.vscode, '[WARN] updateGraph received empty or invalid graphData - clearing graph');
+            // Clear the graph even when empty (important for layer switching)
+            cy.elements().remove();
             updateStats({ nodes: [], edges: [] });
+            this.interactionHandlers.clearTooltip();
             return;
         }
         
@@ -1688,6 +1691,14 @@ export class CytoscapeCore {
      */
     public fitNodes(nodeIds: string[], options?: any): boolean {
         return this.cameraManager.fitNodes(nodeIds, options);
+    }
+    
+    /**
+     * Update layer selector UI to reflect current layer
+     * Called when layer changes from extension
+     */
+    public updateLayerSelector(layer: string): void {
+        this.uiController.updateLayerSelector(layer);
     }
 }
 

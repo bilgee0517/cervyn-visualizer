@@ -116,17 +116,16 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codebaseVisualizer.setLayer', async () => {
-            // NOTE: Currently, only 'implementation' layer is fully developed.
-            // Other layers (blueprint, architecture, dependencies) have basic implementations
-            // and will be enhanced with more sophisticated visualizations in future updates.
+            // C4 Model Visualization Layers
+            // Currently only Code layer is implemented
             const layers = [
-                { label: '📋 Blueprint', value: 'blueprint', description: 'High-level architecture overview (basic implementation - will be enhanced later)' },
-                { label: '🏗️ Architecture', value: 'architecture', description: 'Component structure and relationships (basic implementation - will be enhanced later)' },
-                { label: '⚙️ Implementation', value: 'implementation', description: 'Detailed code structure (fully implemented)' },
-                { label: '🔗 Dependencies', value: 'dependencies', description: 'External and internal dependencies (basic implementation - will be enhanced later)' }
+                { label: 'Context', value: 'context', description: 'External dependencies (not yet implemented)' },
+                { label: 'Container', value: 'container', description: 'Top-level folders (not yet implemented)' },
+                { label: 'Component', value: 'component', description: 'Files and imports (not yet implemented)' },
+                { label: 'Code', value: 'code', description: 'Classes, functions, methods (fully implemented)' }
             ];
             const selected = await vscode.window.showQuickPick(layers, {
-                placeHolder: 'Select visualization layer'
+                placeHolder: 'Select C4 visualization layer'
             });
             if (selected) {
                 graphViewProvider.setLayer(selected.value as any);
@@ -297,8 +296,12 @@ export function activate(context: vscode.ExtensionContext) {
                     log('[Extension] User confirmed, clearing state...');
                     vscode.window.showInformationMessage('Clearing graph state...');
                     await graphService.clearAllState();
-                    log('[Extension] State cleared, refreshing graph...');
-                    vscode.window.showInformationMessage('Graph state cleared. Refreshing...');
+                    log('[Extension] State cleared, switching to code layer and refreshing...');
+                    
+                    // Always switch to code layer after refresh (it's the only implemented layer)
+                    graphViewProvider.setLayer('code');
+                    
+                    vscode.window.showInformationMessage('Graph state cleared. Refreshing code layer...');
                     await graphViewProvider.refresh();
                     log('[Extension] Graph refreshed successfully');
                     vscode.window.showInformationMessage('Graph refreshed successfully');

@@ -21,6 +21,10 @@ import { MCP_FUNCTION_IDS } from './mcp-function-ids.js';
 import * as tools from './tools/index.js';
 import { 
   GetGraphArgsSchema, 
+  AddNodeArgsSchema,
+  DeleteNodeArgsSchema,
+  AddEdgeArgsSchema,
+  DeleteEdgeArgsSchema,
   UpdateNodeArgsSchema, 
   UpdateEdgeArgsSchema,
   formatValidationError 
@@ -59,6 +63,115 @@ const TOOLS: Tool[] = [
           description: 'Which layer to retrieve (default: current layer)',
         },
       },
+    },
+  },
+  {
+    name: MCP_FUNCTION_IDS.ADD_NODE,
+    description: 'Add a new node to a specific graph layer. Use this to create architectural concepts, dependency nodes, or other AI-generated nodes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        label: {
+          type: 'string',
+          description: 'Display label for the node',
+        },
+        type: {
+          type: 'string',
+          description: 'Node type (e.g., "architectural-component", "external-dependency", "file")',
+        },
+        layer: {
+          type: 'string',
+          enum: ['blueprint', 'architecture', 'implementation', 'dependencies'],
+          description: 'Layer to add the node to (default: current layer)',
+        },
+        roleDescription: {
+          type: 'string',
+          description: 'Description of the node\'s role (optional)',
+        },
+        technology: {
+          type: 'string',
+          description: 'Technology or framework (optional)',
+        },
+        path: {
+          type: 'string',
+          description: 'File path if this is a file node (optional)',
+        },
+        parent: {
+          type: 'string',
+          description: 'Parent node ID for compound nodes (optional)',
+        },
+      },
+      required: ['label', 'type'],
+    },
+  },
+  {
+    name: MCP_FUNCTION_IDS.DELETE_NODE,
+    description: 'Delete a node from a specific layer. This also removes all connected edges.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: {
+          type: 'string',
+          description: 'ID of the node to delete',
+        },
+        layer: {
+          type: 'string',
+          enum: ['blueprint', 'architecture', 'implementation', 'dependencies'],
+          description: 'Layer to delete from (default: current layer)',
+        },
+      },
+      required: ['nodeId'],
+    },
+  },
+  {
+    name: MCP_FUNCTION_IDS.ADD_EDGE,
+    description: 'Add an edge between nodes. Nodes can be in different layers (cross-layer edges).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceId: {
+          type: 'string',
+          description: 'Source node ID',
+        },
+        targetId: {
+          type: 'string',
+          description: 'Target node ID',
+        },
+        edgeType: {
+          type: 'string',
+          enum: ['imports', 'calls', 'extends', 'implements', 'depends-on', 'uses'],
+          description: 'Edge type (optional)',
+        },
+        label: {
+          type: 'string',
+          description: 'Edge label (optional)',
+        },
+        layer: {
+          type: 'string',
+          enum: ['blueprint', 'architecture', 'implementation', 'dependencies'],
+          description: 'Layer to store the edge in (default: current layer)',
+        },
+      },
+      required: ['sourceId', 'targetId'],
+    },
+  },
+  {
+    name: MCP_FUNCTION_IDS.DELETE_EDGE,
+    description: 'Delete an edge from a specific layer.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        edgeId: {
+          type: 'string',
+          description: 'ID of the edge to delete',
+        },
+        layer: {
+          type: 'string',
+          enum: ['blueprint', 'architecture', 'implementation', 'dependencies'],
+          description: 'Layer to delete from (default: current layer)',
+        },
+      },
+      required: ['edgeId'],
     },
   },
   {
@@ -155,6 +268,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case MCP_FUNCTION_IDS.GET_GRAPH:
         validatedArgs = GetGraphArgsSchema.parse(args || {});
         result = await tools.getGraph(graphState, validatedArgs);
+        break;
+      
+      case MCP_FUNCTION_IDS.ADD_NODE:
+        validatedArgs = AddNodeArgsSchema.parse(args);
+        result = await tools.addNode(graphState, validatedArgs);
+        break;
+      
+      case MCP_FUNCTION_IDS.DELETE_NODE:
+        validatedArgs = DeleteNodeArgsSchema.parse(args);
+        result = await tools.deleteNode(graphState, validatedArgs);
+        break;
+      
+      case MCP_FUNCTION_IDS.ADD_EDGE:
+        validatedArgs = AddEdgeArgsSchema.parse(args);
+        result = await tools.addEdge(graphState, validatedArgs);
+        break;
+      
+      case MCP_FUNCTION_IDS.DELETE_EDGE:
+        validatedArgs = DeleteEdgeArgsSchema.parse(args);
+        result = await tools.deleteEdge(graphState, validatedArgs);
         break;
       
       case MCP_FUNCTION_IDS.UPDATE_NODE:

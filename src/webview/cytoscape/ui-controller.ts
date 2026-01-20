@@ -87,6 +87,7 @@ export class UIController {
         // Layout is fixed to fCoSE - no selector needed
         this.initContextControls();
         this.initNodeSearch();
+        this.initLayerSelector();
         this.initOnboardingControls();
         this.initDropdownMenu();
         this.initHelpButton();
@@ -833,6 +834,45 @@ export class UIController {
             duration: 300,
             easing: 'ease-out'
         });
+    }
+    
+    /**
+     * Initialize layer selector dropdown
+     */
+    private initLayerSelector(): void {
+        const layerSelect = document.getElementById('layerSelect') as HTMLSelectElement;
+        
+        if (!layerSelect) {
+            logMessage(this.vscode, '[UIController] Layer selector not found');
+            return;
+        }
+        
+        // Handle layer selection change
+        layerSelect.addEventListener('change', () => {
+            const selectedLayer = layerSelect.value;
+            logMessage(this.vscode, `[UIController] Layer changed to: ${selectedLayer}`);
+            
+            // Post message to extension to change layer
+            this.vscode.postMessage({
+                type: 'changeLayer',
+                layer: selectedLayer
+            });
+        });
+        
+        logMessage(this.vscode, '[UIController] ✓ Layer selector initialized');
+    }
+    
+    /**
+     * Update the layer selector to match current layer
+     * Called when layer changes externally (e.g., from Command Palette)
+     */
+    public updateLayerSelector(layer: string): void {
+        const layerSelect = document.getElementById('layerSelect') as HTMLSelectElement;
+        
+        if (layerSelect && layerSelect.value !== layer) {
+            layerSelect.value = layer;
+            logMessage(this.vscode, `[UIController] Layer selector updated to: ${layer}`);
+        }
     }
     
 }

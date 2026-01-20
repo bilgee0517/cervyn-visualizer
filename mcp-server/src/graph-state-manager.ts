@@ -25,7 +25,9 @@ const EXTENSION_OWNED_PROPERTIES = [
     'chunkHash', 'merkleRoot'
 ];
 
-export type Layer = 'blueprint' | 'architecture' | 'implementation' | 'dependencies';
+// C4 Model Visualization Layers
+// Based on Simon Brown's C4 model for software architecture visualization
+export type Layer = 'context' | 'container' | 'component' | 'code';
 
 export interface GraphNode {
     data: {
@@ -85,28 +87,28 @@ export interface ProposedChange {
 
 export class GraphStateManager {
     private graphs: Record<Layer, GraphData> = {
-        blueprint: { nodes: [], edges: [] },
-        architecture: { nodes: [], edges: [] },
-        implementation: { nodes: [], edges: [] },
-        dependencies: { nodes: [], edges: [] }
+        context: { nodes: [], edges: [] },
+        container: { nodes: [], edges: [] },
+        component: { nodes: [], edges: [] },
+        code: { nodes: [], edges: [] }
     };
 
-    private currentLayer: Layer = 'implementation';
+    private currentLayer: Layer = 'code';
     private agentOnlyMode: boolean = false;
 
     private proposedChangesByLayer: Record<Layer, Map<string, ProposedChange>> = {
-        blueprint: new Map(),
-        architecture: new Map(),
-        implementation: new Map(),
-        dependencies: new Map()
+        context: new Map(),
+        container: new Map(),
+        component: new Map(),
+        code: new Map()
     };
 
     // Semantic clustering storage (LLM-based)
     private semanticClusteringByLayer: Record<Layer, any> = {
-        blueprint: null,
-        architecture: null,
-        implementation: null,
-        dependencies: null
+        context: null,
+        container: null,
+        component: null,
+        code: null
     };
 
     // Shared state file tracking
@@ -178,9 +180,23 @@ export class GraphStateManager {
                     }
                 }
 
-                // Load graphs
+                // Load graphs - only load valid C4 layers, filter out legacy keys
                 if (sharedState.graphs) {
-                    this.graphs = sharedState.graphs;
+                    const validLayers: Layer[] = ['context', 'container', 'component', 'code'];
+                    // Start with empty graphs to ensure all C4 layers exist
+                    const normalizedGraphs: Record<Layer, GraphData> = {
+                        context: { nodes: [], edges: [] },
+                        container: { nodes: [], edges: [] },
+                        component: { nodes: [], edges: [] },
+                        code: { nodes: [], edges: [] }
+                    };
+                    // Only copy valid C4 layer data from loaded state
+                    for (const layer of validLayers) {
+                        if (sharedState.graphs[layer]) {
+                            normalizedGraphs[layer] = sharedState.graphs[layer];
+                        }
+                    }
+                    this.graphs = normalizedGraphs;
                 }
 
                 // Load current layer
@@ -195,7 +211,7 @@ export class GraphStateManager {
 
                 // Load proposed changes
                 if (sharedState.proposedChanges) {
-                    const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+                    const layers: Layer[] = ['context', 'container', 'component', 'code'];
                     for (const layer of layers) {
                         this.proposedChangesByLayer[layer].clear();
                         if (sharedState.proposedChanges[layer]) {
@@ -269,28 +285,28 @@ export class GraphStateManager {
         // Ensure all required fields exist with defaults
         if (!migrated.nodeHistory) {
             migrated.nodeHistory = {
-                blueprint: {},
-                architecture: {},
-                implementation: {},
-                dependencies: {}
+                context: {},
+                container: {},
+                component: {},
+                code: {}
             };
         }
         
         if (!migrated.deletedNodes) {
             migrated.deletedNodes = {
-                blueprint: [],
-                architecture: [],
-                implementation: [],
-                dependencies: []
+                context: [],
+                container: [],
+                component: [],
+                code: []
             };
         }
         
         if (!migrated.proposedChanges) {
             migrated.proposedChanges = {
-                blueprint: [],
-                architecture: [],
-                implementation: [],
-                dependencies: []
+                context: [],
+                container: [],
+                component: [],
+                code: []
             };
         }
         
@@ -352,7 +368,7 @@ export class GraphStateManager {
             }
 
             // Convert proposed changes from Map to Array
-            const layers: Layer[] = ['blueprint', 'architecture', 'implementation', 'dependencies'];
+            const layers: Layer[] = ['context', 'container', 'component', 'code'];
             const proposedChangesArray: any = {};
             
             for (const layer of layers) {
@@ -550,15 +566,26 @@ export class GraphStateManager {
             throw new Error(`Edge with ID '${edge.data.id}' already exists in layer '${lyr}'`);
         }
         
-        // Validate that source and target nodes exist
-        const sourceExists = graph.nodes.find(n => n.data.id === edge.data.source);
-        const targetExists = graph.nodes.find(n => n.data.id === edge.data.target);
+        // Validate that source and target nodes exist (check across all layers for cross-layer edges)
+        const allLayers: Layer[] = ['context', 'container', 'component', 'code'];
+        let sourceExists = false;
+        let targetExists = false;
+        
+        for (const checkLayer of allLayers) {
+            if ((this.graphs[checkLayer]?.nodes ?? []).find(n => n.data.id === edge.data.source)) {
+                sourceExists = true;
+            }
+            if ((this.graphs[checkLayer]?.nodes ?? []).find(n => n.data.id === edge.data.target)) {
+                targetExists = true;
+            }
+            if (sourceExists && targetExists) break;
+        }
         
         if (!sourceExists) {
-            throw new Error(`Source node '${edge.data.source}' does not exist (${graph.nodes.length} nodes in layer '${lyr}')`);
+            throw new Error(`Source node '${edge.data.source}' does not exist in any layer`);
         }
         if (!targetExists) {
-            throw new Error(`Target node '${edge.data.target}' does not exist (${graph.nodes.length} nodes in layer '${lyr}')`);
+            throw new Error(`Target node '${edge.data.target}' does not exist in any layer`);
         }
         
         graph.edges.push(edge);
