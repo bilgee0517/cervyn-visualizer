@@ -220,6 +220,7 @@ export class CytoscapeCore {
             // Clear the graph even when empty (important for layer switching)
             cy.elements().remove();
             updateStats({ nodes: [], edges: [] });
+            this.interactionHandlers.clearTooltip();
             return;
         }
         
