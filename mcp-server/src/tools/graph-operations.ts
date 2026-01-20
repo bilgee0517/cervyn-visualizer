@@ -12,6 +12,7 @@ export async function addNode(graphState: GraphStateManager, args: any) {
     
     const node: GraphNode = {
         data: {
+            ...additionalProps, // Include any additional enrichment data (cline, yutori, macrascope)
             id: nodeId,
             label,
             type,
@@ -22,8 +23,7 @@ export async function addNode(graphState: GraphStateManager, args: any) {
             parent,
             isAgentAdded: true, // Always mark as agent-added
             createdBy: 'ai-agent',
-            createdAt: new Date().toISOString(),
-            ...additionalProps // Include any additional enrichment data (cline, yutori, macrascope)
+            createdAt: new Date().toISOString()
         }
     };
 
