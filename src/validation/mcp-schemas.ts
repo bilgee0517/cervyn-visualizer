@@ -8,9 +8,9 @@
 import { z } from 'zod';
 
 /**
- * Layer enum schema
+ * Layer enum schema (C4 Model)
  */
-export const LayerSchema = z.enum(['blueprint', 'architecture', 'implementation', 'dependencies']);
+export const LayerSchema = z.enum(['context', 'container', 'component', 'code']);
 
 /**
  * Progress status enum schema

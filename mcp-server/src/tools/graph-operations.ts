@@ -6,7 +6,7 @@
 import { GraphStateManager, GraphNode, GraphEdge } from '../graph-state-manager.js';
 
 export async function addNode(graphState: GraphStateManager, args: any) {
-    const { label, type, layer, roleDescription, technology, path, parent } = args;
+    const { label, type, layer, roleDescription, technology, path, parent, ...additionalProps } = args;
 
     const nodeId = graphState.generateNodeId(label);
     
@@ -15,11 +15,15 @@ export async function addNode(graphState: GraphStateManager, args: any) {
             id: nodeId,
             label,
             type,
+            layer: layer || graphState.getCurrentLayer(),
             roleDescription,
             technology,
             path,
             parent,
-            isAgentAdded: true // Always mark as agent-added
+            isAgentAdded: true, // Always mark as agent-added
+            createdBy: 'ai-agent',
+            createdAt: new Date().toISOString(),
+            ...additionalProps // Include any additional enrichment data (cline, yutori, macrascope)
         }
     };
 
@@ -34,7 +38,7 @@ export async function addNode(graphState: GraphStateManager, args: any) {
 }
 
 export async function addEdge(graphState: GraphStateManager, args: any) {
-    const { sourceId, targetId, edgeType, label, layer } = args;
+    const { sourceId, targetId, edgeType, label, layer, ...additionalProps } = args;
 
     const edgeId = graphState.generateEdgeId(sourceId, targetId);
     
@@ -44,7 +48,11 @@ export async function addEdge(graphState: GraphStateManager, args: any) {
             source: sourceId,
             target: targetId,
             edgeType,
-            label
+            label,
+            layer: layer || graphState.getCurrentLayer(),
+            createdBy: 'ai-agent',
+            createdAt: new Date().toISOString(),
+            ...additionalProps // Include any additional data
         }
     };
 
@@ -102,13 +110,37 @@ export async function getGraph(graphState: GraphStateManager, args: any) {
 }
 
 export async function updateNode(graphState: GraphStateManager, args: any) {
-    const { nodeId, label, roleDescription, technology, progressStatus, layer } = args;
+    const { nodeId, label, roleDescription, technology, progressStatus, layer, ...extraArgs } = args;
+
+    // Structural fields that should NEVER be modified via updateNode
+    const protectedFields = ['parent', 'children', 'childNodes', 'isCompound', 'groupType', 
+                           'childCount', 'id', 'type', 'path', 'category', 'isCollapsed', 
+                           'sizeMultiplier', 'shape'];
+    
+    // Check if any protected fields are being passed
+    const attemptedProtectedFields = Object.keys(extraArgs).filter(key => 
+        protectedFields.includes(key)
+    );
+    
+    if (attemptedProtectedFields.length > 0) {
+        throw new Error(
+            `Cannot modify structural fields via updateNode: ${attemptedProtectedFields.join(', ')}. ` +
+            `These fields maintain graph hierarchy and must be preserved.`
+        );
+    }
 
     const updates: any = {};
     if (label !== undefined) updates.label = label;
     if (roleDescription !== undefined) updates.roleDescription = roleDescription;
     if (technology !== undefined) updates.technology = technology;
     if (progressStatus !== undefined) updates.progressStatus = progressStatus;
+    
+    // Allow any extra enrichment fields that aren't protected
+    Object.keys(extraArgs).forEach(key => {
+        if (extraArgs[key] !== undefined && !protectedFields.includes(key)) {
+            updates[key] = extraArgs[key];
+        }
+    });
 
     graphState.updateNode(nodeId, updates, layer);
 
