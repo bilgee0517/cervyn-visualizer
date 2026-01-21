@@ -54,7 +54,7 @@ async function runSyncTests() {
             type: 'component',
             roleDescription: 'A test component added via MCP',
             technology: 'TypeScript',
-            layer: 'architecture'
+            layer: 'component'
         });
         console.log(`    Node created with ID: ${newNode.data.id}`);
 
@@ -65,9 +65,9 @@ async function runSyncTests() {
         const state1 = readSharedState();
         console.log(`    State file version: ${state1.version}`);
         console.log(`    State file source: ${state1.source}`);
-        console.log(`    Nodes in architecture layer: ${state1.graphs.architecture.nodes.length}`);
+        console.log(`    Nodes in component layer: ${state1.graphs.component.nodes.length}`);
         
-        const foundNode = state1.graphs.architecture.nodes.find((n: any) => n.data.id === newNode.data.id);
+        const foundNode = state1.graphs.component.nodes.find((n: any) => n.data.id === newNode.data.id);
         if (foundNode) {
             console.log(`    ✓ Node found in shared state file`);
             console.log(`    ✓ Node is marked as agent-added: ${foundNode.data.isAgentAdded}`);
@@ -82,14 +82,14 @@ async function runSyncTests() {
             changeName: 'Add TypeScript interfaces',
             summary: 'Define proper type interfaces for the component',
             intention: 'Improve type safety',
-            layer: 'architecture'
+            layer: 'component'
         });
 
         await new Promise(resolve => setTimeout(resolve, 200));
 
         const state2 = readSharedState();
         console.log(`    State file version: ${state2.version}`);
-        const proposedChange = state2.proposedChanges.architecture.find((c: any) => c.nodeId === newNode.data.id);
+        const proposedChange = state2.proposedChanges.component.find((c: any) => c.nodeId === newNode.data.id);
         if (proposedChange) {
             console.log(`    ✓ Proposed change found in shared state`);
             console.log(`    ✓ Change name: ${proposedChange.name}`);
@@ -109,16 +109,16 @@ async function runSyncTests() {
 
         // Test 4: Apply proposed changes
         console.log('\n--- Test 4: Apply Proposed Changes ---');
-        await callTool('applyProposedChanges', { layer: 'architecture' });
+        await callTool('applyProposedChanges', { layer: 'component' });
 
         await new Promise(resolve => setTimeout(resolve, 200));
 
         const state4 = readSharedState();
         console.log(`    State file version: ${state4.version}`);
-        console.log(`    Proposed changes remaining: ${state4.proposedChanges.architecture.length}`);
+        console.log(`    Proposed changes remaining: ${state4.proposedChanges.component.length}`);
 
         // Check if the node was updated with the change metadata
-        const updatedNode = state4.graphs.architecture.nodes.find((n: any) => n.data.id === newNode.data.id);
+        const updatedNode = state4.graphs.component.nodes.find((n: any) => n.data.id === newNode.data.id);
         if (updatedNode && updatedNode.data.modified) {
             console.log(`    ✓ Node was updated with proposed changes`);
             console.log(`    ✓ Node marked as modified: ${updatedNode.data.modified}`);
@@ -133,14 +133,14 @@ async function runSyncTests() {
             type: 'service',
             roleDescription: 'Utility service for helper functions',
             technology: 'TypeScript',
-            layer: 'architecture'
+            layer: 'component'
         });
 
         const newEdge = await callTool('addEdge', {
             source: newNode.data.id,
             target: targetNode.data.id,
             label: 'uses',
-            layer: 'architecture'
+            layer: 'component'
         });
         console.log(`    Edge created with ID: ${newEdge.data.id}`);
 
@@ -148,9 +148,9 @@ async function runSyncTests() {
 
         const state5 = readSharedState();
         console.log(`    State file version: ${state5.version}`);
-        console.log(`    Edges in architecture layer: ${state5.graphs.architecture.edges.length}`);
+        console.log(`    Edges in component layer: ${state5.graphs.component.edges.length}`);
         
-        const foundEdge = state5.graphs.architecture.edges.find((e: any) => e.data.id === newEdge.data.id);
+        const foundEdge = state5.graphs.component.edges.find((e: any) => e.data.id === newEdge.data.id);
         if (foundEdge) {
             console.log(`    ✓ Edge found in shared state file`);
         } else {
@@ -165,9 +165,9 @@ async function runSyncTests() {
         console.log(`Final state version: ${finalState.version}`);
         console.log(`Final state source: ${finalState.source}`);
         console.log(`Agent-only mode: ${finalState.agentOnlyMode}`);
-        console.log(`Total nodes in architecture layer: ${finalState.graphs.architecture.nodes.length}`);
-        console.log(`Total edges in architecture layer: ${finalState.graphs.architecture.edges.length}`);
-        console.log(`Pending proposed changes: ${finalState.proposedChanges.architecture.length}`);
+        console.log(`Total nodes in component layer: ${finalState.graphs.component.nodes.length}`);
+        console.log(`Total edges in component layer: ${finalState.graphs.component.edges.length}`);
+        console.log(`Pending proposed changes: ${finalState.proposedChanges.component.length}`);
         
         console.log('\n✓ All synchronization tests passed!');
         console.log('\n📁 Shared state file location:');
