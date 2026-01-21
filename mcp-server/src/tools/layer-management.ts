@@ -4,6 +4,7 @@
  */
 
 import { GraphStateManager, Layer } from '../graph-state-manager.js';
+import { getLayerGuidance } from '../config/layer-guidance.js';
 
 export async function setLayer(graphState: GraphStateManager, args: any) {
     const { layer } = args as { layer: Layer };
@@ -47,4 +48,32 @@ export async function getAgentOnlyMode(graphState: GraphStateManager, args: any)
     };
 }
 
+export async function describeLayer(graphState: GraphStateManager, args: any) {
+    const { layer } = args as { layer: Layer };
+
+    const guidance = getLayerGuidance(layer);
+
+    return {
+        success: true,
+        layer,
+        guidance: {
+            name: guidance.name,
+            purpose: guidance.purpose,
+            description: guidance.description,
+            recommendedNodeTypes: guidance.recommendedNodeTypes,
+            recommendedEdgeTypes: guidance.recommendedEdgeTypes,
+            examples: guidance.examples,
+            useCases: guidance.useCases,
+            warnings: guidance.warnings,
+            // NEW: Enhanced guidance for AI agents
+            whatToInclude: guidance.whatToInclude,
+            whatToAvoid: guidance.whatToAvoid,
+            nodeTypeMapping: guidance.nodeTypeMapping,
+            strictValidation: guidance.strictValidation,
+            validationMessage: guidance.strictValidation 
+                ? '🔒 This layer enforces STRICT type validation - only recommended types are allowed'
+                : '⚠️  This layer allows flexible types but will show warnings for non-recommended types'
+        }
+    };
+}
 
