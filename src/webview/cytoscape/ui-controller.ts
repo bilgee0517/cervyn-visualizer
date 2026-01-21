@@ -852,6 +852,9 @@ export class UIController {
             const selectedLayer = layerSelect.value;
             logMessage(this.vscode, `[UIController] Layer changed to: ${selectedLayer}`);
             
+            // Update state manager with current layer
+            this.stateManager.setCurrentLayer(selectedLayer);
+            
             // Post message to extension to change layer
             this.vscode.postMessage({
                 type: 'changeLayer',
@@ -872,6 +875,9 @@ export class UIController {
         if (layerSelect && layerSelect.value !== layer) {
             layerSelect.value = layer;
             logMessage(this.vscode, `[UIController] Layer selector updated to: ${layer}`);
+            
+            // Also update state manager
+            this.stateManager.setCurrentLayer(layer);
         }
     }
     

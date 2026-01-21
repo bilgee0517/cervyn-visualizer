@@ -28,10 +28,11 @@
             </div>
         </div>
         
-        <!-- C4 Layer Selector -->
+        <!-- Multi-Layer Selector: Workflow + C4 Model -->
         <div class="toolbar-group">
             <span class="select-label">Layer</span>
-            <select id="layerSelect" class="toolbar-select" title="Switch visualization layer (C4 Model)">
+            <select id="layerSelect" class="toolbar-select" title="Switch visualization layer">
+                <option value="workflow">Workflow</option>
                 <option value="context">Context</option>
                 <option value="container">Container</option>
                 <option value="component">Component</option>
@@ -87,6 +88,19 @@
     </div>
     <div class="loading" id="loading">Loading graph...</div>
     <div id="nodeTooltip"></div>
+    
+    <!-- Feature Tracing Panel -->
+    <div id="featureTracingPanel" class="feature-tracing-panel" style="display: none;">
+        <div class="panel-header">
+            <h3 id="featureTracingTitle">Feature Details</h3>
+            <button id="featureTracingClose" class="panel-close-btn">✕</button>
+        </div>
+        <div class="panel-content">
+            <div id="featureTracingContent">
+                <!-- Dynamic content will be inserted here -->
+            </div>
+        </div>
+    </div>
     
     <!-- Onboarding overlay -->
     <div id="onboardingOverlay" style="display: none;">

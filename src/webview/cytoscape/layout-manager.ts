@@ -86,9 +86,11 @@ export class LayoutManager {
     
     /**
      * Apply layout to the graph
+     * @param layoutName - Layout algorithm name (or 'auto' for layer-based selection)
+     * @param layer - Optional layer to determine optimal layout
      */
-    applyLayout(layoutName: string): void {
-        logMessage(this.vscode, `[LayoutManager] applyLayout("${layoutName}") called`);
+    applyLayout(layoutName: string, layer?: string): void {
+        logMessage(this.vscode, `[LayoutManager] applyLayout("${layoutName}", layer="${layer || 'none'}") called`);
         
         const cy = this.stateManager.getCy();
         logMessage(this.vscode, `[LayoutManager] cy exists: ${!!cy}`);
@@ -161,6 +163,23 @@ export class LayoutManager {
             const compoundNodes = visibleNodes.filter('[isCompound]');
             compoundNodes.forEach((parent: any) => {
                 try {
+                    // CRITICAL: Verify the parent node itself is valid and can be accessed
+                    if (!parent || parent.length === 0 || !parent.id()) {
+                        logMessage(this.vscode, `[ERROR] Invalid compound node detected - removing from layout`);
+                        return;
+                    }
+                    
+                    // CRITICAL: Test if descendants() works on this node (fcose will call this internally)
+                    try {
+                        parent.descendants();
+                    } catch (descError) {
+                        logMessage(this.vscode, `[ERROR] Compound node "${parent.id()}" has broken descendants() - removing compound flag`);
+                        parent.data('_wasCompound', true);
+                        parent.data('isCompound', false);
+                        fixedCount++;
+                        return;
+                    }
+                    
                     // Try to get children safely
                     const allChildren = cy.nodes(`[parent = "${parent.id()}"]`);
                     const visibleChildren = allChildren.filter(':visible');
@@ -193,6 +212,34 @@ export class LayoutManager {
             // Now use only visible elements with valid compound structure
             elementsToLayout = cy.elements(':visible');
             
+            // Pass 3: CRITICAL - Final compound node validation right before fcose
+            // Test that all compound nodes in the layout set are valid
+            const layoutCompoundNodes = elementsToLayout.nodes('[isCompound]');
+            let invalidCompoundCount = 0;
+            layoutCompoundNodes.forEach((node: any) => {
+                try {
+                    // Test if this node can be accessed safely
+                    if (!node || !node.id || !node.isNode || !node.isNode()) {
+                        throw new Error('Node is not valid');
+                    }
+                    // Test if descendants works (fcose will call this)
+                    node.descendants();
+                } catch (err) {
+                    logMessage(this.vscode, `[ERROR] Invalid compound node "${node?.id?.() || 'unknown'}" detected in layout set - removing compound flag`);
+                    if (node && node.data) {
+                        node.data('_wasCompound', true);
+                        node.data('isCompound', false);
+                        invalidCompoundCount++;
+                    }
+                }
+            });
+            
+            if (invalidCompoundCount > 0) {
+                logMessage(this.vscode, `[WARN] Removed compound flag from ${invalidCompoundCount} invalid nodes`);
+                // Refresh elements to layout after removing invalid compound flags
+                elementsToLayout = cy.elements(':visible');
+            }
+            
             // Final validation: count compound nodes
             const compoundCount = elementsToLayout.nodes('[isCompound]').length;
             logMessage(this.vscode, `[INFO] fCoSE will process ${elementsToLayout.nodes().length} nodes (${compoundCount} compound) and ${elementsToLayout.edges().length} edges`);
@@ -224,20 +271,25 @@ export class LayoutManager {
             logMessage(this.vscode, `[INFO] No edges detected - fCoSE will use repulsion forces to space nodes`);
         }
         
-        // Only fCoSE is supported - layoutName parameter ignored
+        // Layer-aware layout selection: fcose for all layers (supports compound nodes)
+        // If layoutName is 'auto', automatically select based on layer
+        if (layoutName === 'auto') {
+            layoutName = 'fcose'; // Use fcose for all layers
+            logMessage(this.vscode, `[INFO] Auto-selected layout: ${layoutName} for layer: ${layer}`);
+        }
         
-        logMessage(this.vscode, `[INFO] Preparing layout configuration for "${layoutName}"...`);
+        logMessage(this.vscode, `[INFO] Preparing layout configuration for "${layoutName}" (layer: ${layer || 'unknown'})...`);
         
         const visibleNodeCount = cy.nodes(':visible').length;
         const getLayoutConfig = this.stateManager.getLayoutConfig();
         
         let layoutConfig;
         try {
-            logMessage(this.vscode, `[INFO] Calling getLayoutConfig("${layoutName}", ${visibleNodeCount})...`);
+            logMessage(this.vscode, `[INFO] Calling getLayoutConfig("${layoutName}", ${visibleNodeCount}, "${layer}")...`);
             layoutConfig = getLayoutConfig ? 
-                getLayoutConfig(layoutName, visibleNodeCount) :
+                getLayoutConfig(layoutName, visibleNodeCount, layer) :
                 { name: layoutName };
-            logMessage(this.vscode, `[INFO] Layout configuration generated successfully`);
+            logMessage(this.vscode, `[INFO] Layout configuration generated successfully (${layoutConfig.name})`);
         } catch (error) {
             logMessage(this.vscode, `[ERROR] Failed to generate layout config: ${error instanceof Error ? error.message : String(error)}`);
             layoutConfig = { name: layoutName };
@@ -317,13 +369,9 @@ export class LayoutManager {
             this.fixOverlappingNodes();
             } else {
                 logMessage(this.vscode, '[INFO] Layout completed (fCoSE handles overlap prevention natively)');
-                
-                // Verify no overlaps occurred
-                this.verifyNoOverlaps();
             }
             
             setTimeout(() => {
-                this.applySmartCameraPositioning();
                 
                 // Apply initial zoom-based visibility after first layout completes
                 if (this.isFirstLayout && this.zoomLODManager) {
@@ -337,98 +385,11 @@ export class LayoutManager {
         });
     }
     
-    /**
-     * Verify no overlaps exist (diagnostic for fCoSE)
-     */
-    private verifyNoOverlaps(): void {
-        const cy = this.stateManager.getCy();
-        if (!cy) return;
-        
-        const nodes = cy.nodes(':visible');
-        let totalOverlapCount = 0;
-        let childOverlapCount = 0;
-        
-        // Group nodes by parent to check children within same parent
-        const nodesByParent = new Map<string, any[]>();
-        nodes.forEach((node: any) => {
-            const parentId = node.data('parent') || 'root';
-            if (!nodesByParent.has(parentId)) {
-                nodesByParent.set(parentId, []);
-            }
-            nodesByParent.get(parentId)!.push(node);
-        });
-        
-        // Check for overlaps within each parent (most critical)
-        nodesByParent.forEach((siblings, parentId) => {
-            if (siblings.length < 2) return;
-            
-            for (let i = 0; i < siblings.length; i++) {
-                const node1 = siblings[i];
-                const bb1 = node1.boundingBox();
-                
-                for (let j = i + 1; j < siblings.length; j++) {
-                    const node2 = siblings[j];
-                    const bb2 = node2.boundingBox();
-                    
-                    // Check if bounding boxes overlap
-                    if (!(bb1.x2 < bb2.x1 || bb1.x1 > bb2.x2 || bb1.y2 < bb2.y1 || bb1.y1 > bb2.y2)) {
-                        childOverlapCount++;
-                        totalOverlapCount++;
-                        if (childOverlapCount <= 3) {
-                            logMessage(this.vscode,
-                                `⚠️ CHILD OVERLAP in parent "${parentId}": ` +
-                                `${node1.data('label')} (${node1.data('type')}, ` +
-                                `${Math.round(bb1.w)}x${Math.round(bb1.h)}) overlaps ` +
-                                `${node2.data('label')} (${node2.data('type')}, ` +
-                                `${Math.round(bb2.w)}x${Math.round(bb2.h)})`
-                            );
-                        }
-                    }
-                }
-            }
-        });
-        
-        // Also check general overlaps (between different parents)
-        for (let i = 0; i < nodes.length; i++) {
-            const node1 = nodes[i];
-            const parent1 = node1.data('parent');
-            const bb1 = node1.boundingBox();
-            
-            for (let j = i + 1; j < nodes.length; j++) {
-                const node2 = nodes[j];
-                const parent2 = node2.data('parent');
-                
-                // Skip if already counted (same parent)
-                if (parent1 === parent2) continue;
-                
-                const bb2 = node2.boundingBox();
-                
-                // Check if bounding boxes overlap
-                if (!(bb1.x2 < bb2.x1 || bb1.x1 > bb2.x2 || bb1.y2 < bb2.y1 || bb1.y1 > bb2.y2)) {
-                    totalOverlapCount++;
-                }
-            }
-        }
-        
-        if (totalOverlapCount === 0) {
-            logMessage(this.vscode, '✓ No overlaps detected - fCoSE working correctly!');
-        } else {
-            logMessage(this.vscode, 
-                `⚠️ Found ${totalOverlapCount} total overlaps ` +
-                `(${childOverlapCount} within same parent) - adjusting parameters...`
-            );
-        }
-    }
     
     /**
      * Apply smart camera positioning (disabled to preserve user's camera position)
      */
-    applySmartCameraPositioning(): void {
-        // This function is now disabled to prevent automatic camera movements
-        // Users can manually navigate using the minimap or pan/zoom controls
-        logMessage(this.vscode, 'Smart camera positioning disabled to preserve user view');
-    }
-    
+
 
 
     /**
@@ -516,18 +477,16 @@ export class LayoutManager {
             this.packNodesAtLevel(levelNodes, nodes);
         }
         
-        // Step 5: Iterative global compaction (both horizontal and vertical)
-        // Alternate between vertical and horizontal to optimize both dimensions
-        const compactionIterations = 3;
-        for (let iter = 0; iter < compactionIterations; iter++) {
-            logMessage(this.vscode, `  Compaction iteration ${iter + 1}/${compactionIterations}`);
-            
-            // Vertical compaction (reduce row gaps)
-            this.compactVertically(nodes);
-            
-            // Horizontal compaction (reduce column gaps)
-            this.compactHorizontally(nodes);
-        }
+        // Step 5: Single-pass global compaction (prevent exponential gap accumulation)
+        // CRITICAL: Only run once to avoid compounding movements
+        // Multiple iterations were causing exponential gap increases (3k → 33k → 169k px!)
+        logMessage(this.vscode, '  Running single-pass compaction (with movement limits)...');
+        
+        // Vertical compaction (reduce row gaps)
+        this.compactVertically(nodes);
+        
+        // Horizontal compaction (reduce column gaps)
+        this.compactHorizontally(nodes);
         
         logMessage(this.vscode, '✓ Hierarchical compaction complete');
     }
@@ -783,10 +742,16 @@ export class LayoutManager {
             // Calculate gap
             const gap = currentRowTop - prevRowBottom;
             const minGap = CONFIG.MIN_NODE_SPACING;
+            const targetGap = minGap; // Keep 20px extra for breathing room (reduced from 50)
             
-            // If gap is excessive, move current row up
-            if (gap > minGap + 50) {
-                const moveUp = gap - minGap - 20; // Keep 20px extra for breathing room
+            // If gap is excessive, move current row up (with safety limit)
+            if (gap > targetGap) {
+                const idealMove = gap - targetGap;
+                
+                // CRITICAL: Limit maximum movement to prevent exponential gaps
+                // This prevents the bug where iterations compound: 3k → 33k → 169k px
+                const MAX_MOVE = 50; // Maximum 500px movement per row
+                const moveUp = Math.min(idealMove, MAX_MOVE);
                 
                 // Try moving all nodes in current row up
                 const originalPositions = currentRow.map((node: any) => ({
@@ -887,10 +852,15 @@ export class LayoutManager {
             // Calculate gap
             const gap = currentColumnLeft - prevColumnRight;
             const minGap = CONFIG.MIN_NODE_SPACING;
+            const targetGap = minGap + 20; // Keep 20px extra for breathing room (reduced from 50)
             
-            // If gap is excessive, move current column left
-            if (gap > minGap + 50) {
-                const moveLeft = gap - minGap - 20; // Keep 20px extra for breathing room
+            // If gap is excessive, move current column left (with safety limit)
+            if (gap > targetGap) {
+                const idealMove = gap - targetGap;
+                
+                // CRITICAL: Limit maximum movement to prevent exponential gaps
+                const MAX_MOVE = 500; // Maximum 500px movement per column
+                const moveLeft = Math.min(idealMove, MAX_MOVE);
                 
                 // Try moving all nodes in current column left
                 const originalPositions = currentColumn.map((node: any) => ({

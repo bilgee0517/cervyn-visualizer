@@ -14,23 +14,28 @@ export class StateManager {
     // Expand level (0-3)
     private expandLevel: number = 0;
     
+    // Current layer
+    private currentLayer: string = 'code';
+    
     // UI state
     private hasSeenOnboarding = false;
     
     // Getters
     getCy(): any { return this.cy; }
     getCytoscapeStyles(): any { return this.cytoscapeStyles; }
-    getLayoutConfig(): ((layoutName: string, nodeCount: number) => any) | null { return this.layoutConfigFn; }
+    getLayoutConfig(): ((layoutName: string, nodeCount: number, layer?: string) => any) | null { return this.layoutConfigFn; }
     isReady(): boolean { return this.isConfigReady; }
     hasUserSeenOnboarding(): boolean { return this.hasSeenOnboarding; }
     getExpandLevel(): number { return this.expandLevel; }
+    getCurrentLayer(): string { return this.currentLayer; }
     
     // Setters
     setCy(cy: any): void { this.cy = cy; }
     setCytoscapeStyles(styles: any): void { this.cytoscapeStyles = styles; }
-    setLayoutConfig(fn: (layoutName: string, nodeCount: number) => any): void { this.layoutConfigFn = fn; }
+    setLayoutConfig(fn: (layoutName: string, nodeCount: number, layer?: string) => any): void { this.layoutConfigFn = fn; }
     setConfigReady(ready: boolean): void { this.isConfigReady = ready; }
     setHasSeenOnboarding(seen: boolean): void { this.hasSeenOnboarding = seen; }
+    setCurrentLayer(layer: string): void { this.currentLayer = layer; }
     
     // Expand level methods
     incrementExpandLevel(): void {

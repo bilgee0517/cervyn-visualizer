@@ -606,6 +606,7 @@ export class InteractionHandlers {
         let badgeColor = '#666';
         
         switch (edgeType) {
+            // Code/Component layer edges
             case 'imports':
                 typeBadge = '📦 Import';
                 badgeColor = COLORS.edges.imports;
@@ -626,8 +627,121 @@ export class InteractionHandlers {
                 typeBadge = '📋 Implements';
                 badgeColor = COLORS.edges.implements;
                 break;
+            case 'uses':
+                typeBadge = '👤 Uses';
+                badgeColor = COLORS.edges.uses;
+                break;
+            
+            // Workflow layer edges
+            case 'depends-on-feature':
+                typeBadge = '🔗 Feature Dependency';
+                badgeColor = COLORS.edges.dependsOnFeature;
+                break;
+            case 'part-of':
+                typeBadge = '📦 Part Of';
+                badgeColor = COLORS.edges.partOf;
+                break;
+            case 'primary-flow':
+                typeBadge = '➡️ Primary Flow';
+                badgeColor = COLORS.edges.primaryFlow;
+                break;
+            case 'alternate-flow':
+                typeBadge = '⤴️ Alternate Flow';
+                badgeColor = COLORS.edges.alternateFlow;
+                break;
+            case 'triggers':
+                typeBadge = '⚡ Triggers';
+                badgeColor = COLORS.edges.triggers;
+                break;
+            
+            // Context layer edges (boundary interactions)
+            case 'integrates-with':
+                typeBadge = '🔄 Integrates With';
+                badgeColor = COLORS.edges.integratesWith;
+                break;
+            case 'authenticates-with':
+                typeBadge = '🔐 Authenticates With';
+                badgeColor = COLORS.edges.authenticatesWith;
+                break;
+            case 'reads-from':
+                typeBadge = '📖 Reads From';
+                badgeColor = COLORS.edges.readsFrom;
+                break;
+            case 'writes-to':
+                typeBadge = '✍️ Writes To';
+                badgeColor = COLORS.edges.writesTo;
+                break;
+            case 'sends-event-to':
+                typeBadge = '📤 Sends Event To';
+                badgeColor = COLORS.edges.sendsEventTo;
+                break;
+            case 'receives-event-from':
+                typeBadge = '📥 Receives Event From';
+                badgeColor = COLORS.edges.receivesEventFrom;
+                break;
+            
+            // Container layer edges (runtime semantics)
+            case 'http-request':
+                typeBadge = '🌐 HTTP Request';
+                badgeColor = COLORS.edges.httpRequest;
+                break;
+            case 'rpc-call':
+                typeBadge = '⚡ RPC Call';
+                badgeColor = COLORS.edges.rpcCall;
+                break;
+            case 'db-query':
+                typeBadge = '🗄️ DB Query';
+                badgeColor = COLORS.edges.dbQuery;
+                break;
+            case 'cache-read':
+                typeBadge = '⚡ Cache Read';
+                badgeColor = COLORS.edges.cacheRead;
+                break;
+            case 'cache-write':
+                typeBadge = '💾 Cache Write';
+                badgeColor = COLORS.edges.cacheWrite;
+                break;
+            case 'publish-event':
+                typeBadge = '📢 Publish Event';
+                badgeColor = COLORS.edges.publishEvent;
+                break;
+            case 'consume-event':
+                typeBadge = '📨 Consume Event';
+                badgeColor = COLORS.edges.consumeEvent;
+                break;
+            case 'enqueue-job':
+                typeBadge = '📋 Enqueue Job';
+                badgeColor = COLORS.edges.enqueueJob;
+                break;
+            case 'replicates-to':
+                typeBadge = '🔁 Replicates To';
+                badgeColor = COLORS.edges.replicatesTo;
+                break;
+            case 'syncs-with':
+                typeBadge = '🔄 Syncs With';
+                badgeColor = COLORS.edges.syncsWith;
+                break;
+            
+            // Legacy edges
+            case 'sends-data-to':
+                typeBadge = '📤 Sends Data To';
+                badgeColor = COLORS.edges.writesTo;
+                break;
+            case 'receives-data-from':
+                typeBadge = '📥 Receives Data From';
+                badgeColor = COLORS.edges.readsFrom;
+                break;
+            case 'publishes-to':
+                typeBadge = '📢 Publishes To';
+                badgeColor = COLORS.edges.publishEvent;
+                break;
+            case 'subscribes-to':
+                typeBadge = '📨 Subscribes To';
+                badgeColor = COLORS.edges.consumeEvent;
+                break;
+            
             default:
-                typeBadge = '→ Connection';
+                typeBadge = `→ ${edgeType}`;
                 badgeColor = COLORS.edges.default;
         }
         
@@ -646,6 +760,9 @@ export class InteractionHandlers {
                 ${isExternal ? `<span style="color: ${COLORS.warning}; font-size: var(--font-size-xs);">External</span>` : ''}
             </div>
             <div class="tooltip-content">
+                <div style="margin-bottom: var(--spacing-sm); padding: var(--spacing-xs); background: var(--color-bg-secondary); border-radius: var(--border-radius-sm);">
+                    <strong>Type:</strong> <code style="font-size: var(--font-size-xs); color: ${badgeColor};">${edgeType}</code>
+                </div>
                 ${edgeDescription ? `<div style="margin-bottom: var(--spacing-sm); padding: var(--spacing-xs); background: var(--color-bg-secondary); border-radius: var(--border-radius-sm);"><strong>Description:</strong> ${edgeDescription}</div>` : ''}
                 <div><strong>From:</strong> ${source.data('label')}</div>
                 ${sourceDescription ? `<div style="margin-left: var(--spacing-md); margin-bottom: var(--spacing-sm); color: var(--color-text-secondary); font-size: var(--font-size-xs);">${sourceDescription}</div>` : ''}
