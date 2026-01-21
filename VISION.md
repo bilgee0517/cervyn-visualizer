@@ -15,12 +15,16 @@
 ## 🚀 Long-Term Vision
 
 ### Phase 1: Foundation (Current) ✅
-- ✅ Implementation layer with full code analysis
+- ✅ 5-layer system (workflow/context/container/component/code)
+- ✅ Code layer with full code analysis (auto-populated)
 - ✅ TypeScript/JavaScript support via Tree-sitter
-- ✅ fCoSE layout algorithm
-- ✅ MCP server infrastructure
+- ✅ Layout algorithms (fCoSE for code, Dagre for workflow)
+- ✅ MCP server infrastructure with layer guidance
+- ✅ Feature annotation system (cross-layer tracing)
+- ✅ Workflow layer - Developer-focused feature mapping with hierarchical layout
+- ✅ Feature-to-code tracing UI with interactive panel
 - ✅ JSON export
-- ⚠️ Basic multi-layer views (others need enhancement)
+- ⚠️ Context, Container, Component layers (manual/AI-populated)
 - ⚠️ Metrics calculation (not yet visually displayed)
 
 ### Phase 2: Enhancement (Next 6 months)

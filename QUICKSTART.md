@@ -27,10 +27,11 @@ In the Extension Development Host window, press `Ctrl+Shift+P` (or `Cmd+Shift+P`
 
 1. **Cervyn Visualizer: Show Graph** - Opens the visualization
 2. **Cervyn Visualizer: Switch Layer** - Try different layers:
-   - Blueprint (high-level directory structure)
-   - Architecture (component relationships)
-   - Implementation (detailed code structure)
-   - Dependencies (package dependencies)
+   - Workflow (feature mapping and dependencies - hierarchical layout)
+   - Context (external systems and boundaries)
+   - Container (applications and services)
+   - Component (modules and packages)
+   - Code (detailed implementation - auto-populated)
 
 The visualization uses **fCoSE (Fast Compound Spring Embedder)** layout, which automatically arranges nodes with guaranteed no overlaps and optimal spacing.
 
