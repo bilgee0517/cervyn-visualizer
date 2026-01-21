@@ -965,3 +965,152 @@ body {
     margin: 0 6px;
     color: var(--vscode-descriptionForeground);
 }
+
+/* ========== FEATURE TRACING PANEL ========== */
+.feature-tracing-panel {
+    position: fixed;
+    bottom: var(--spacing-lg);
+    right: var(--spacing-lg);
+    width: 350px;
+    max-height: 500px;
+    background: var(--vscode-editorWidget-background);
+    border: var(--border-thin) solid var(--vscode-panel-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-xl);
+    z-index: var(--z-modal);
+    display: flex;
+    flex-direction: column;
+    transition: all var(--transition-normal);
+}
+
+.feature-tracing-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-lg);
+    border-bottom: var(--border-thin) solid var(--vscode-panel-border);
+    background: var(--vscode-editorWidget-background);
+}
+
+.feature-tracing-panel .panel-header h3 {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--vscode-foreground);
+}
+
+.feature-tracing-panel .panel-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--vscode-foreground);
+    font-size: var(--font-size-xl);
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius-sm);
+    transition: background var(--transition-fast);
+}
+
+.feature-tracing-panel .panel-close-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.feature-tracing-panel .panel-content {
+    padding: var(--spacing-lg);
+    overflow-y: auto;
+    flex: 1;
+}
+
+.feature-info {
+    margin-bottom: var(--spacing-lg);
+}
+
+.feature-info-label {
+    font-size: var(--font-size-sm);
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: var(--spacing-xs);
+}
+
+.feature-info-value {
+    font-size: var(--font-size-base);
+    color: var(--vscode-foreground);
+    margin-bottom: var(--spacing-md);
+}
+
+.implementation-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.implementation-item {
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    background: var(--vscode-editor-background);
+    border: var(--border-thin) solid var(--vscode-panel-border);
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.implementation-item:hover {
+    background: var(--vscode-list-hoverBackground);
+    border-color: var(--vscode-focusBorder);
+}
+
+.implementation-item-icon {
+    font-size: var(--font-size-base);
+}
+
+.implementation-item-label {
+    flex: 1;
+    font-size: var(--font-size-base);
+    color: var(--vscode-foreground);
+}
+
+.implementation-item-type {
+    font-size: var(--font-size-xs);
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-badge-background);
+    padding: 2px 6px;
+    border-radius: var(--border-radius-sm);
+}
+
+.no-implementation {
+    padding: var(--spacing-lg);
+    text-align: center;
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+}
+
+.jump-to-layer-btn {
+    width: 100%;
+    padding: var(--spacing-md);
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-medium);
+    margin-top: var(--spacing-md);
+    transition: background var(--transition-fast);
+}
+
+.jump-to-layer-btn:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.jump-to-layer-btn:disabled {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    cursor: not-allowed;
+    opacity: 0.5;
+}

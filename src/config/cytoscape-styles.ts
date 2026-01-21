@@ -193,6 +193,557 @@ export const CYTOSCAPE_STYLES = [
     },
   },
   
+  // =============================================================================
+  // WORKFLOW LAYER NODE STYLES - User-facing Features
+  // =============================================================================
+  
+  // Feature nodes - Primary blue for main features
+  {
+    selector: 'node[type="feature"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.workflow.feature,
+      'border-color': COLORS.workflow.feature,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Feature nodes - Not implemented (no supportedBy links)
+  {
+    selector: 'node[type="feature"][!supportedBy], node[type="feature"][supportedBy=""], node[type="feature"][supportedBy="[]"]',
+    style: {
+      'border-style': 'dotted',
+      'opacity': 0.6,
+      'background-color': COLORS.states.dimmed,
+      'border-color': PALETTE.neutral[500],
+    },
+  },
+  
+  // Feature nodes - Fully implemented (has supportedBy links)
+  {
+    selector: 'node[type="feature"][supportedBy]',
+    style: {
+      'border-style': 'solid',
+      'opacity': 1.0,
+      'border-width': BORDERS.thick,
+    },
+  },
+  
+  // Feature-group nodes - Container for related features (indigo)
+  {
+    selector: 'node[type="feature-group"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.workflow.featureGroup,
+      'border-color': COLORS.workflow.featureGroup,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '140px',
+      'min-height': '90px',
+      'width': '140px',
+      'height': '90px',
+      'padding': '25px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // User-journey nodes - Flow through multiple features (purple, works as compound node)
+  {
+    selector: 'node[type="user-journey"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.workflow.userJourney,
+      'border-color': COLORS.workflow.userJourney,
+      'border-width': BORDERS.thick,
+      'border-style': 'solid',
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '700',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '160px',
+      'min-height': '100px',
+      'width': '160px',
+      'height': '100px',
+      'padding': '30px',
+      'text-valign': 'top',
+      'text-halign': 'center',
+      'text-margin-y': getTextMargin('directory'),
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+      'compound-sizing-wrt-labels': 'exclude',
+    },
+  },
+  
+  // =============================================================================
+  // CONTEXT LAYER NODE STYLES - External Systems & Boundaries
+  // =============================================================================
+  
+  // Actor nodes (people, users, roles, personas) - Teal, ellipse shape
+  {
+    selector: 'node[type="actor"]',
+    style: {
+      'shape': 'ellipse',
+      'background-color': COLORS.context.actor,
+      'border-color': COLORS.context.actor,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '100px',
+      'min-height': '100px',
+      'width': '100px',
+      'height': '100px',
+      'padding': '15px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // External system nodes - Rose for external dependencies
+  {
+    selector: 'node[type="external-system"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.context.externalSystem,
+      'border-color': COLORS.context.externalSystem,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // External API nodes - Pink for API integrations
+  {
+    selector: 'node[type="external-api"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.context.externalApi,
+      'border-color': COLORS.context.externalApi,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // External datastore nodes (databases, caches) - Yellow, cylinder shape
+  {
+    selector: 'node[type="external-datastore"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.context.externalDatastore,
+      'border-color': COLORS.context.externalDatastore,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // External service nodes (SaaS: Auth0, Stripe, Twilio) - Light rose
+  {
+    selector: 'node[type="external-service"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.context.externalService,
+      'border-color': COLORS.context.externalService,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // =============================================================================
+  // CONTAINER LAYER NODE STYLES - Runtime + Data Ownership
+  // =============================================================================
+  
+  // =============================================================================
+  // CONTAINER LAYER NODE STYLES - Runtime + Data Ownership
+  // =============================================================================
+  
+  // Frontend nodes - Cyan for client apps (web, mobile)
+  {
+    selector: 'node[type="frontend"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.container.frontend,
+      'border-color': COLORS.container.frontend,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Service nodes - Green for backend services/APIs
+  {
+    selector: 'node[type="service"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.container.service,
+      'border-color': COLORS.container.service,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Worker nodes - Orange for background job processors
+  {
+    selector: 'node[type="worker"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.container.worker,
+      'border-color': COLORS.container.worker,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Gateway nodes - Blue for API gateways/load balancers
+  {
+    selector: 'node[type="gateway"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.container.gateway,
+      'border-color': COLORS.container.gateway,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Message broker nodes - Purple for event buses
+  {
+    selector: 'node[type="message-broker"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.container.messageBroker,
+      'border-color': COLORS.container.messageBroker,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Datastore nodes - Yellow cylinder for databases
+  {
+    selector: 'node[type="datastore"]',
+    style: {
+      'shape': 'barrel', // Cylinder shape for databases
+      'background-color': COLORS.container.datastore,
+      'border-color': COLORS.container.datastore,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Cache nodes - Red for in-memory caches
+  {
+    selector: 'node[type="cache"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.container.cache,
+      'border-color': COLORS.container.cache,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Object store nodes - Gray for blob storage
+  {
+    selector: 'node[type="object-store"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.container.objectStore,
+      'border-color': COLORS.container.objectStore,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // =============================================================================
+  // COMPONENT LAYER NODE STYLES - Modules & Packages
+  // =============================================================================
+  
+  // Module nodes - Purple for modules
+  {
+    selector: 'node[type="module"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.component.module,
+      'border-color': COLORS.component.module,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Package nodes - Violet for packages
+  {
+    selector: 'node[type="package"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.component.package,
+      'border-color': COLORS.component.package,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Component nodes - Indigo for components
+  {
+    selector: 'node[type="component"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.component.component,
+      'border-color': COLORS.component.component,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Library nodes - Blue for libraries
+  {
+    selector: 'node[type="library"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.component.library,
+      'border-color': COLORS.component.library,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Namespace nodes - Cyan for namespaces
+  {
+    selector: 'node[type="namespace"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.component.namespace,
+      'border-color': COLORS.component.namespace,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
+  // Plugin nodes - Pink for plugins
+  {
+    selector: 'node[type="plugin"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': COLORS.component.plugin,
+      'border-color': COLORS.component.plugin,
+      'border-width': BORDERS.medium,
+      'font-size': TYPOGRAPHY.node.class.fontSize,
+      'font-weight': '600',
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.class.textMaxWidth,
+      'min-width': '120px',
+      'min-height': '80px',
+      'width': '120px',
+      'height': '80px',
+      'padding': '20px',
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeClass,
+    },
+  },
+  
   // Compound (parent/folder) nodes - general styling
   {
     selector: 'node[isCompound]',
@@ -234,7 +785,7 @@ export const CYTOSCAPE_STYLES = [
   // EDGE STYLES - Minimal, Consistent Design
   // =============================================================================
   
-  // Base edge style
+  // Base edge style - Straight lines for clarity
   {
     selector: 'edge',
     style: {
@@ -242,9 +793,7 @@ export const CYTOSCAPE_STYLES = [
       'line-color': COLORS.edges.default,
       'target-arrow-color': COLORS.edges.default,
       'target-arrow-shape': 'triangle',
-      'curve-style': 'taxi',
-      'taxi-direction': 'auto',
-      'taxi-turn': '50%',
+      'curve-style': 'straight', // Changed from 'taxi' to 'straight'
       'arrow-scale': 1,
       'opacity': OPACITY_SEMANTIC.edge,
       'z-index': Z_INDEX.edge,
@@ -277,7 +826,7 @@ export const CYTOSCAPE_STYLES = [
       'width': BORDERS.medium,
       'opacity': OPACITY_SEMANTIC.edge,
       'z-index': Z_INDEX.edgeDependency,
-      'curve-style': 'taxi',
+      'curve-style': 'straight', // Changed from 'taxi' to 'straight'
     },
   },
   
@@ -291,7 +840,7 @@ export const CYTOSCAPE_STYLES = [
       'opacity': OPACITY.dimmed,
       'z-index': Z_INDEX.edgeCalls,
       'line-style': 'dotted',
-      'curve-style': 'bezier',
+      'curve-style': 'straight', // Changed from 'bezier' to 'straight'
     },
   },
   
@@ -309,6 +858,368 @@ export const CYTOSCAPE_STYLES = [
     },
   },
   
+  // =============================================================================
+  // WORKFLOW LAYER EDGE STYLES - Feature Dependencies & User Journeys
+  // =============================================================================
+  
+  // Depends-on-feature edges - Rose for feature dependencies (replaces "requires")
+  {
+    selector: 'edge[edgeType="depends-on-feature"]',
+    style: {
+      'line-color': COLORS.edges.dependsOnFeature,
+      'target-arrow-color': COLORS.edges.dependsOnFeature,
+      'width': BORDERS.medium,
+      'line-style': 'dashed',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Part-of edges - Purple for composition (replaces "composed-of")
+  {
+    selector: 'edge[edgeType="part-of"]',
+    style: {
+      'line-color': COLORS.edges.partOf,
+      'target-arrow-color': COLORS.edges.partOf,
+      'width': BORDERS.normal,
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Primary-flow edges - Emerald for main journey steps
+  {
+    selector: 'edge[edgeType="primary-flow"]',
+    style: {
+      'line-color': COLORS.edges.primaryFlow,
+      'target-arrow-color': COLORS.edges.primaryFlow,
+      'width': BORDERS.thick,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Alternate-flow edges - Amber for variant/error paths
+  {
+    selector: 'edge[edgeType="alternate-flow"]',
+    style: {
+      'line-color': COLORS.edges.alternateFlow,
+      'target-arrow-color': COLORS.edges.alternateFlow,
+      'width': BORDERS.normal,
+      'line-style': 'dotted',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Triggers edges - Cyan for event triggers
+  {
+    selector: 'edge[edgeType="triggers"]',
+    style: {
+      'line-color': COLORS.edges.triggers,
+      'target-arrow-color': COLORS.edges.triggers,
+      'width': BORDERS.thin,
+      'opacity': OPACITY.dimmed,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // =============================================================================
+  // CONTEXT LAYER EDGE STYLES - Boundary Interactions
+  // =============================================================================
+  
+  // Uses edges - Teal for actor uses system (human interaction)
+  {
+    selector: 'edge[edgeType="uses"]',
+    style: {
+      'line-color': COLORS.edges.uses,
+      'target-arrow-color': COLORS.edges.uses,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Integrates With edges - Rose for system integration (bidirectional)
+  {
+    selector: 'edge[edgeType="integrates-with"]',
+    style: {
+      'line-color': COLORS.edges.integratesWith,
+      'target-arrow-color': COLORS.edges.integratesWith,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'diamond',  // Diamond for bidirectional
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Authenticates With edges - Orange for authentication relationships
+  {
+    selector: 'edge[edgeType="authenticates-with"]',
+    style: {
+      'line-color': COLORS.edges.authenticatesWith,
+      'target-arrow-color': COLORS.edges.authenticatesWith,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Reads From edges - Blue for data reading from external source
+  {
+    selector: 'edge[edgeType="reads-from"]',
+    style: {
+      'line-color': COLORS.edges.readsFrom,
+      'target-arrow-color': COLORS.edges.readsFrom,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Writes To edges - Indigo for data writing to external target
+  {
+    selector: 'edge[edgeType="writes-to"]',
+    style: {
+      'line-color': COLORS.edges.writesTo,
+      'target-arrow-color': COLORS.edges.writesTo,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Sends Event To edges - Purple for event publishing to external system
+  {
+    selector: 'edge[edgeType="sends-event-to"]',
+    style: {
+      'line-color': COLORS.edges.sendsEventTo,
+      'target-arrow-color': COLORS.edges.sendsEventTo,
+      'width': BORDERS.medium,
+      'line-style': 'dashed',  // Dashed for event/async semantics
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Receives Event From edges - Violet for event subscription from external system
+  {
+    selector: 'edge[edgeType="receives-event-from"]',
+    style: {
+      'line-color': COLORS.edges.receivesEventFrom,
+      'target-arrow-color': COLORS.edges.receivesEventFrom,
+      'width': BORDERS.medium,
+      'line-style': 'dashed',  // Dashed for event/async semantics
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // =============================================================================
+  // CONTAINER LAYER EDGE STYLES - Runtime Semantics
+  // =============================================================================
+  
+  // HTTP Request edges - Blue solid for REST/HTTP calls (sync)
+  {
+    selector: 'edge[edgeType="http-request"]',
+    style: {
+      'line-color': COLORS.edges.httpRequest,
+      'target-arrow-color': COLORS.edges.httpRequest,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // RPC Call edges - Cyan solid for gRPC/RPC calls (sync)
+  {
+    selector: 'edge[edgeType="rpc-call"]',
+    style: {
+      'line-color': COLORS.edges.rpcCall,
+      'target-arrow-color': COLORS.edges.rpcCall,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // DB Query edges - Yellow solid for database queries (sync)
+  {
+    selector: 'edge[edgeType="db-query"]',
+    style: {
+      'line-color': COLORS.edges.dbQuery,
+      'target-arrow-color': COLORS.edges.dbQuery,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Cache Read edges - Light red solid for cache lookups (sync)
+  {
+    selector: 'edge[edgeType="cache-read"]',
+    style: {
+      'line-color': COLORS.edges.cacheRead,
+      'target-arrow-color': COLORS.edges.cacheRead,
+      'width': BORDERS.thin,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Cache Write edges - Red solid for cache updates (sync)
+  {
+    selector: 'edge[edgeType="cache-write"]',
+    style: {
+      'line-color': COLORS.edges.cacheWrite,
+      'target-arrow-color': COLORS.edges.cacheWrite,
+      'width': BORDERS.thin,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Publish Event edges - Purple dashed for event publishing (async)
+  {
+    selector: 'edge[edgeType="publish-event"]',
+    style: {
+      'line-color': COLORS.edges.publishEvent,
+      'target-arrow-color': COLORS.edges.publishEvent,
+      'width': BORDERS.medium,
+      'line-style': 'dashed',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Consume Event edges - Light purple dashed for event consumption (async)
+  {
+    selector: 'edge[edgeType="consume-event"]',
+    style: {
+      'line-color': COLORS.edges.consumeEvent,
+      'target-arrow-color': COLORS.edges.consumeEvent,
+      'width': BORDERS.medium,
+      'line-style': 'dashed',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Enqueue Job edges - Orange dashed for job queuing (async)
+  {
+    selector: 'edge[edgeType="enqueue-job"]',
+    style: {
+      'line-color': COLORS.edges.enqueueJob,
+      'target-arrow-color': COLORS.edges.enqueueJob,
+      'width': BORDERS.medium,
+      'line-style': 'dashed',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Replicates To edges - Green dotted for data replication
+  {
+    selector: 'edge[edgeType="replicates-to"]',
+    style: {
+      'line-color': COLORS.edges.replicatesTo,
+      'target-arrow-color': COLORS.edges.replicatesTo,
+      'width': BORDERS.thin,
+      'line-style': 'dotted',
+      'opacity': OPACITY.dimmed,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Syncs With edges - Teal dotted for bidirectional sync
+  {
+    selector: 'edge[edgeType="syncs-with"]',
+    style: {
+      'line-color': COLORS.edges.syncsWith,
+      'target-arrow-color': COLORS.edges.syncsWith,
+      'width': BORDERS.thin,
+      'line-style': 'dotted',
+      'opacity': OPACITY.dimmed,
+      'target-arrow-shape': 'diamond',  // Diamond for bidirectional
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // =============================================================================
+  // LEGACY WORKFLOW EDGES (Deprecated - kept for backward compatibility)
+  // =============================================================================
+  
+  // Enables edges - Green arrows (DEPRECATED: use primary-flow or depends-on-feature)
+  {
+    selector: 'edge[edgeType="enables"]',
+    style: {
+      'line-color': PALETTE.emerald.DEFAULT,
+      'target-arrow-color': PALETTE.emerald.DEFAULT,
+      'width': BORDERS.medium,
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Requires edges - Red arrows (DEPRECATED: use depends-on-feature)
+  {
+    selector: 'edge[edgeType="requires"]',
+    style: {
+      'line-color': PALETTE.rose.DEFAULT,
+      'target-arrow-color': PALETTE.rose.DEFAULT,
+      'width': BORDERS.medium,
+      'line-style': 'dashed',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Composed-of edges - Purple containment lines (DEPRECATED: use part-of)
+  {
+    selector: 'edge[edgeType="composed-of"]',
+    style: {
+      'line-color': PALETTE.purple.DEFAULT,
+      'target-arrow-color': PALETTE.purple.DEFAULT,
+      'width': BORDERS.normal,
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
   // Selected edge - Prominent orange/amber with increased width for better visibility
   // This selector has higher specificity than type-specific selectors when combined
   {
@@ -320,7 +1231,7 @@ export const CYTOSCAPE_STYLES = [
       'source-arrow-color': PALETTE.amber.DEFAULT,
       'opacity': 1,
       'z-index': Z_INDEX.selected,
-      'curve-style': 'bezier',
+      'curve-style': 'straight', // Changed from 'bezier' to 'straight'
     },
   },
   

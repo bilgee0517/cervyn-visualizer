@@ -157,6 +157,44 @@ export const COLORS = {
         concept: PALETTE.pink.DEFAULT,
     },
     
+    // Workflow Layer Node Colors
+    workflow: {
+        feature: PALETTE.blue.DEFAULT,
+        featureGroup: PALETTE.indigo.DEFAULT,
+        userJourney: PALETTE.purple.DEFAULT,
+    },
+    
+    // Context Layer Node Colors
+    context: {
+        actor: PALETTE.teal.DEFAULT,                // People, users, roles, personas
+        externalSystem: PALETTE.rose.DEFAULT,       // Generic external systems
+        externalApi: PALETTE.pink.DEFAULT,          // External APIs
+        externalDatastore: PALETTE.yellow.DEFAULT,  // Databases, caches, data warehouses
+        externalService: PALETTE.rose.light,        // SaaS services (Auth0, Stripe, etc.)
+    },
+    
+    // Container Layer Node Colors (Runtime + Data Ownership)
+    container: {
+        frontend: PALETTE.cyan.DEFAULT,        // Client apps (web, mobile)
+        service: PALETTE.green.DEFAULT,        // Backend services, APIs
+        worker: PALETTE.orange.DEFAULT,        // Background job processors
+        gateway: PALETTE.blue.DEFAULT,         // API gateways, load balancers
+        messageBroker: PALETTE.purple.DEFAULT, // Event buses (Kafka, RabbitMQ)
+        datastore: PALETTE.yellow.DEFAULT,     // Databases you own
+        cache: PALETTE.red.DEFAULT,            // In-memory caches (Redis)
+        objectStore: PALETTE.neutral[500],     // Blob storage (S3, MinIO)
+    },
+    
+    // Component Layer Node Colors
+    component: {
+        module: PALETTE.purple.DEFAULT,
+        package: PALETTE.violet.DEFAULT,
+        component: PALETTE.indigo.DEFAULT,
+        library: PALETTE.blue.DEFAULT,
+        namespace: PALETTE.cyan.DEFAULT,
+        plugin: PALETTE.pink.DEFAULT,
+    },
+    
     // Node Category Colors
     categories: {
         component: PALETTE.rose.DEFAULT,
@@ -205,6 +243,35 @@ export const COLORS = {
         extends: PALETTE.purple.DEFAULT,
         implements: PALETTE.purple.DEFAULT,
         runtimeCall: PALETTE.orange.DEFAULT,
+        // Workflow layer edges
+        dependsOnFeature: PALETTE.rose.DEFAULT,
+        partOf: PALETTE.purple.DEFAULT,
+        primaryFlow: PALETTE.emerald.DEFAULT,
+        alternateFlow: PALETTE.amber.DEFAULT,
+        triggers: PALETTE.cyan.DEFAULT,
+        // Context layer edges (boundary interactions)
+        uses: PALETTE.teal.DEFAULT,             // Actor uses system
+        integratesWith: PALETTE.rose.DEFAULT,   // System integration
+        authenticatesWith: PALETTE.orange.DEFAULT, // Authentication
+        readsFrom: PALETTE.blue.DEFAULT,        // Data reading
+        writesTo: PALETTE.indigo.DEFAULT,       // Data writing
+        sendsEventTo: PALETTE.purple.DEFAULT,   // Event publishing
+        receivesEventFrom: PALETTE.violet.DEFAULT, // Event subscription
+        // Container layer edges (runtime semantics)
+        httpRequest: PALETTE.blue.DEFAULT,      // Sync: REST/HTTP
+        rpcCall: PALETTE.cyan.DEFAULT,          // Sync: gRPC/RPC
+        dbQuery: PALETTE.yellow.DEFAULT,        // Sync: Database query
+        cacheRead: PALETTE.red.light,           // Sync: Cache lookup
+        cacheWrite: PALETTE.red.DEFAULT,        // Sync: Cache update
+        publishEvent: PALETTE.purple.DEFAULT,   // Async: Publish to broker
+        consumeEvent: PALETTE.purple.light,     // Async: Consume from broker
+        enqueueJob: PALETTE.orange.DEFAULT,     // Async: Add job to queue
+        replicatesTo: PALETTE.green.DEFAULT,    // Data: Replication flow
+        syncsWith: PALETTE.teal.DEFAULT,        // Data: Bidirectional sync
+        // Legacy workflow edges (deprecated)
+        enables: PALETTE.emerald.DEFAULT,
+        requires: PALETTE.rose.DEFAULT,
+        composedOf: PALETTE.purple.DEFAULT,
     },
     
     // Code Quality Colors (Coverage/Complexity)
