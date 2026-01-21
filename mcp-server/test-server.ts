@@ -19,7 +19,7 @@ async function runTests() {
         const addNodeResult = await tools.addNode(graphState, {
             label: 'AuthService',
             type: 'module',
-            layer: 'architecture',
+            layer: 'component',
             roleDescription: 'Handles user authentication',
             technology: 'Express'
         });
@@ -30,7 +30,7 @@ async function runTests() {
         const addNode2Result = await tools.addNode(graphState, {
             label: 'UserController',
             type: 'module',
-            layer: 'architecture',
+            layer: 'component',
             roleDescription: 'Manages user operations'
         });
         console.log('✓ Result:', JSON.stringify(addNode2Result, null, 2));
@@ -92,7 +92,7 @@ async function runTests() {
         
         // Test 10: Layer Management
         console.log('\nTest 10: Layer Management');
-        const setLayerResult = await tools.setLayer(graphState, { layer: 'implementation' });
+        const setLayerResult = await tools.setLayer(graphState, { layer: 'code' });
         console.log('✓ Result:', JSON.stringify(setLayerResult, null, 2));
         
         const getLayerResult = await tools.getCurrentLayer(graphState, {});

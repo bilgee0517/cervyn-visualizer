@@ -4,11 +4,53 @@
  */
 
 import { GraphStateManager, GraphNode, GraphEdge } from '../graph-state-manager.js';
+import { getLayerGuidance, isNodeTypeRecommended, isEdgeTypeRecommended, suggestLayerForNodeType } from '../config/layer-guidance.js';
 
 export async function addNode(graphState: GraphStateManager, args: any) {
     const { label, type, layer, roleDescription, technology, path, parent, ...additionalProps } = args;
 
+    const targetLayer = layer || graphState.getCurrentLayer();
     const nodeId = graphState.generateNodeId(label);
+    
+    // Validation: Check if node type is recommended for this layer
+    const warnings: string[] = [];
+    let recommendations: any = {};
+    const guidance = getLayerGuidance(targetLayer);
+    
+    if (!isNodeTypeRecommended(targetLayer, type)) {
+        const suggestedLayer = suggestLayerForNodeType(type);
+        
+        // STRICT VALIDATION: Block invalid types for strict layers
+        if (guidance.strictValidation) {
+            throw new Error(
+                `❌ Node type '${type}' is not allowed in '${targetLayer}' layer.\n\n` +
+                `✅ Allowed types: ${guidance.recommendedNodeTypes.join(', ')}\n\n` +
+                `💡 This layer enforces strict type validation to ensure correct visual styling.\n` +
+                (suggestedLayer ? `   Suggested layer for '${type}': ${suggestedLayer}` : '')
+            );
+        }
+        
+        // SOFT VALIDATION: Warnings for non-strict layers
+        if (suggestedLayer) {
+            warnings.push(
+                `⚠️  Node type '${type}' is typically used in '${suggestedLayer}' layer, not '${targetLayer}' layer`
+            );
+            warnings.push(
+                `Consider: ${getLayerGuidance(suggestedLayer).purpose}`
+            );
+            recommendations.suggestedLayer = suggestedLayer;
+        } else {
+            warnings.push(
+                `⚠️  Node type '${type}' is not in the recommended types for '${targetLayer}' layer`
+            );
+        }
+        
+        warnings.push(
+            `💡 Recommended types for '${targetLayer}': ${guidance.recommendedNodeTypes.slice(0, 5).join(', ')}`
+        );
+        recommendations.suggestedNodeTypes = guidance.recommendedNodeTypes;
+        recommendations.nodeTypeMapping = guidance.nodeTypeMapping;
+    }
     
     const node: GraphNode = {
         data: {
@@ -16,7 +58,7 @@ export async function addNode(graphState: GraphStateManager, args: any) {
             id: nodeId,
             label,
             type,
-            layer: layer || graphState.getCurrentLayer(),
+            layer: targetLayer,
             roleDescription,
             technology,
             path,
@@ -29,18 +71,51 @@ export async function addNode(graphState: GraphStateManager, args: any) {
 
     graphState.addNode(node, layer);
 
-    return {
+    const response: any = {
         success: true,
         message: `Node '${label}' added successfully`,
         nodeId,
-        layer: layer || graphState.getCurrentLayer()
+        layer: targetLayer
     };
+    
+    // Add warnings if any
+    if (warnings.length > 0) {
+        response.warnings = warnings;
+        response.recommendations = recommendations;
+    }
+
+    return response;
 }
 
 export async function addEdge(graphState: GraphStateManager, args: any) {
     const { sourceId, targetId, edgeType, label, layer, ...additionalProps } = args;
 
+    const targetLayer = layer || graphState.getCurrentLayer();
     const edgeId = graphState.generateEdgeId(sourceId, targetId);
+    
+    // Validation: Check if edge type is recommended for this layer
+    const warnings: string[] = [];
+    const guidance = getLayerGuidance(targetLayer);
+    
+    if (edgeType && !isEdgeTypeRecommended(targetLayer, edgeType)) {
+        // STRICT VALIDATION: Block invalid edge types for strict layers
+        if (guidance.strictValidation) {
+            throw new Error(
+                `❌ Edge type '${edgeType}' is not allowed in '${targetLayer}' layer.\n\n` +
+                `✅ Allowed edge types: ${guidance.recommendedEdgeTypes.join(', ')}\n\n` +
+                `💡 This layer enforces strict edge type validation to ensure runtime semantics are clear.\n` +
+                `   Use specific edge types that describe what happens at runtime.`
+            );
+        }
+        
+        // SOFT VALIDATION: Warnings for non-strict layers
+        warnings.push(
+            `⚠️  Edge type '${edgeType}' is not in the recommended types for '${targetLayer}' layer`
+        );
+        warnings.push(
+            `💡 Recommended edge types for '${targetLayer}': ${guidance.recommendedEdgeTypes.slice(0, 5).join(', ')}`
+        );
+    }
     
     const edge: GraphEdge = {
         data: {
@@ -49,7 +124,7 @@ export async function addEdge(graphState: GraphStateManager, args: any) {
             target: targetId,
             edgeType,
             label,
-            layer: layer || graphState.getCurrentLayer(),
+            layer: targetLayer,
             createdBy: 'ai-agent',
             createdAt: new Date().toISOString(),
             ...additionalProps // Include any additional data
@@ -58,13 +133,20 @@ export async function addEdge(graphState: GraphStateManager, args: any) {
 
     graphState.addEdge(edge, layer);
 
-    return {
+    const response: any = {
         success: true,
         message: `Edge from '${sourceId}' to '${targetId}' added successfully`,
         edgeId,
         edgeType,
-        layer: layer || graphState.getCurrentLayer()
+        layer: targetLayer
     };
+    
+    // Add warnings if any
+    if (warnings.length > 0) {
+        response.warnings = warnings;
+    }
+
+    return response;
 }
 
 export async function removeNode(graphState: GraphStateManager, args: any) {
@@ -96,11 +178,22 @@ export async function removeEdge(graphState: GraphStateManager, args: any) {
 export async function getGraph(graphState: GraphStateManager, args: any) {
     const { layer } = args;
 
+    const currentLayer = layer || graphState.getCurrentLayer();
     const graphData = graphState.getGraph(layer);
+    const guidance = getLayerGuidance(currentLayer);
 
     return {
         success: true,
-        layer: layer || graphState.getCurrentLayer(),
+        layer: currentLayer,
+        layerInfo: {
+            name: guidance.name,
+            purpose: guidance.purpose,
+            recommendedNodeTypes: guidance.recommendedNodeTypes,
+            recommendedEdgeTypes: guidance.recommendedEdgeTypes,
+            examples: guidance.examples,
+            useCases: guidance.useCases,
+            warnings: guidance.warnings
+        },
         agentOnlyMode: graphState.getAgentOnlyMode(),
         nodeCount: graphData.nodes.length,
         edgeCount: graphData.edges.length,
@@ -113,7 +206,7 @@ export async function updateNode(graphState: GraphStateManager, args: any) {
     const { nodeId, label, roleDescription, technology, progressStatus, layer, ...extraArgs } = args;
 
     // Structural fields that should NEVER be modified via updateNode
-    const protectedFields = ['parent', 'children', 'childNodes', 'isCompound', 'groupType', 
+    const protectedFields = ['parent', 'isCompound', 'groupType', 
                            'childCount', 'id', 'type', 'path', 'category', 'isCollapsed', 
                            'sizeMultiplier', 'shape'];
     
@@ -156,6 +249,27 @@ export async function updateNode(graphState: GraphStateManager, args: any) {
 export async function updateEdge(graphState: GraphStateManager, args: any) {
     const { edgeId, label, edgeType, description, layer } = args;
 
+    const targetLayer = layer || graphState.getCurrentLayer();
+    const warnings: string[] = [];
+    const guidance = getLayerGuidance(targetLayer);
+    
+    // Validation: Check if new edge type is recommended for this layer
+    if (edgeType !== undefined && !isEdgeTypeRecommended(targetLayer, edgeType)) {
+        // STRICT VALIDATION: Block invalid edge types for strict layers
+        if (guidance.strictValidation) {
+            throw new Error(
+                `❌ Edge type '${edgeType}' is not allowed in '${targetLayer}' layer.\n\n` +
+                `✅ Allowed edge types: ${guidance.recommendedEdgeTypes.join(', ')}\n\n` +
+                `💡 This layer enforces strict edge type validation to ensure runtime semantics are clear.`
+            );
+        }
+        
+        // SOFT VALIDATION: Warnings for non-strict layers
+        warnings.push(
+            `⚠️  Edge type '${edgeType}' is not in the recommended types for '${targetLayer}' layer`
+        );
+    }
+
     const updates: any = {};
     if (label !== undefined) updates.label = label;
     if (edgeType !== undefined) updates.edgeType = edgeType;
@@ -163,13 +277,20 @@ export async function updateEdge(graphState: GraphStateManager, args: any) {
 
     graphState.updateEdge(edgeId, updates, layer);
 
-    return {
+    const response: any = {
         success: true,
         message: `Edge '${edgeId}' updated successfully`,
         edgeId,
         updates,
-        layer: layer || graphState.getCurrentLayer()
+        layer: targetLayer
     };
+    
+    // Add warnings if any
+    if (warnings.length > 0) {
+        response.warnings = warnings;
+    }
+
+    return response;
 }
 
 

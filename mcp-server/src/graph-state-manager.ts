@@ -9,25 +9,31 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import * as lockfile from 'proper-lockfile';
+import { LayerIndexes } from './indexing/graph-indexes.js';
 
-// Schema version for state file migrations
-const SCHEMA_VERSION = 1;
+// Current schema version
+const SCHEMA_VERSION = 3;
 
 // Import property ownership boundaries from shared config
 // Note: In production, these should be in a shared package or copied between projects
 const EXTENSION_OWNED_PROPERTIES = [
     'id', 'label', 'type', 'path', 'fileExtension', 'language',
-    'parent', 'isCompound', 'groupType', 'childCount', 'children', 'childNodes',
+    'parent', 'isCompound', 'groupType', 'childCount',
     'linesOfCode', 'complexity', 'testCoverage', 'daysSinceLastChange', 'layer',
     'sizeMultiplier', 'revealThreshold', 'category', 'isEntryPoint',
     'chunkHash', 'merkleRoot'
 ];
 
-// C4 Model Visualization Layers
-// Based on Simon Brown's C4 model for software architecture visualization
-export type Layer = 'context' | 'container' | 'component' | 'code';
+// 5-Layer Visualization System
+// Combines workflow layer (features) with C4 model (architecture)
+// - workflow: User-facing features and capabilities (NEW)
+// - context: External systems and boundaries (C4 Level 1)
+// - container: Applications and services (C4 Level 2)
+// - component: Modules and packages (C4 Level 3)
+// - code: Implementation details (C4 Level 4)
+export type Layer = 'workflow' | 'context' | 'container' | 'component' | 'code';
+
 
 export interface GraphNode {
     data: {
@@ -47,8 +53,10 @@ export interface GraphNode {
         parent?: string;
         isCompound?: boolean;
         isCollapsed?: boolean;
-        groupType?: 'folder' | 'logical' | 'namespace';
+        groupType?: 'folder' | 'logical' | 'namespace' | 'file';
         childCount?: number;
+        // NOTE: children/childNodes arrays removed - use parent references instead
+        // Cytoscape calculates children dynamically via parent field
         isAgentAdded?: boolean;
         changeName?: string;
         changeSummary?: string;
@@ -56,6 +64,9 @@ export interface GraphNode {
         changeAdditionalInfo?: string;
         chunkHash?: string;
         merkleRoot?: string;
+        // Feature annotation properties (cross-layer tracing)
+        supportsFeatures?: string[]; // Feature IDs this node supports (all layers except workflow)
+        supportedBy?: string[];      // Node IDs implementing this feature (workflow layer only)
     };
 }
 
@@ -87,6 +98,7 @@ export interface ProposedChange {
 
 export class GraphStateManager {
     private graphs: Record<Layer, GraphData> = {
+        workflow: { nodes: [], edges: [] },
         context: { nodes: [], edges: [] },
         container: { nodes: [], edges: [] },
         component: { nodes: [], edges: [] },
@@ -95,8 +107,12 @@ export class GraphStateManager {
 
     private currentLayer: Layer = 'code';
     private agentOnlyMode: boolean = false;
+    
+    // Indexes for fast lookups (NEW)
+    private indexes: LayerIndexes = new LayerIndexes();
 
     private proposedChangesByLayer: Record<Layer, Map<string, ProposedChange>> = {
+        workflow: new Map(),
         context: new Map(),
         container: new Map(),
         component: new Map(),
@@ -105,6 +121,7 @@ export class GraphStateManager {
 
     // Semantic clustering storage (LLM-based)
     private semanticClusteringByLayer: Record<Layer, any> = {
+        workflow: null,
         context: null,
         container: null,
         component: null,
@@ -125,8 +142,28 @@ export class GraphStateManager {
     // ============================================================================
 
     private getSharedStateDir(): string {
-        const homeDir = os.homedir();
-        return path.join(homeDir, '.codebase-visualizer');
+        // Get workspace path from environment variable (set by Cursor/VS Code)
+        // If not set, assume we're in mcp-server subdir and go up one level to workspace root
+        let workspacePath = process.env.WORKSPACE_PATH;
+        
+        if (!workspacePath) {
+            const cwd = process.cwd();
+            // If we're in the mcp-server directory, go up one level to get workspace root
+            if (cwd.endsWith('mcp-server') || cwd.includes('/mcp-server')) {
+                workspacePath = path.dirname(cwd);
+            } else {
+                workspacePath = cwd;
+            }
+        }
+        
+        console.error(`[GraphStateManager] Using workspace path: ${workspacePath}`);
+        console.error(`[GraphStateManager] process.cwd(): ${process.cwd()}`);
+        console.error(`[GraphStateManager] process.env.WORKSPACE_PATH: ${process.env.WORKSPACE_PATH}`);
+        
+        // Store in workspace/.codebase-visualizer
+        const stateDir = path.join(workspacePath, '.codebase-visualizer');
+        console.error(`[GraphStateManager] State dir: ${stateDir}`);
+        return stateDir;
     }
 
     private getSharedStateFile(): string {
@@ -162,38 +199,30 @@ export class GraphStateManager {
                     return;
                 }
 
-                // Apply schema migrations if needed
+                // Verify schema version (expecting v3)
                 const currentSchemaVersion = sharedState.schemaVersion || 0;
-                if (currentSchemaVersion < SCHEMA_VERSION) {
-                    console.error(`[GraphStateManager] State needs schema migration (current: ${currentSchemaVersion}, target: ${SCHEMA_VERSION})`);
-                    sharedState = this.migrateStateSchema(sharedState);
-                    
-                    // Write migrated state back to file
-                    try {
-                        const tempFile = stateFile + '.tmp';
-                        fs.writeFileSync(tempFile, JSON.stringify(sharedState, null, 2), 'utf-8');
-                        fs.renameSync(tempFile, stateFile);
-                        console.error(`[GraphStateManager] ✓ Migrated state written to file`);
-                    } catch (err) {
-                        console.error(`[GraphStateManager] Warning: Failed to write migrated state: ${err instanceof Error ? err.message : String(err)}`);
-                        // Continue with in-memory migrated state even if write fails
-                    }
+                if (currentSchemaVersion !== SCHEMA_VERSION) {
+                    console.error(`[GraphStateManager] Warning: State file schema version is ${currentSchemaVersion}, expected ${SCHEMA_VERSION}`);
+                    console.error(`[GraphStateManager] State may need to be regenerated if errors occur`);
                 }
 
-                // Load graphs - only load valid C4 layers, filter out legacy keys
+                // Load graphs - only load valid layers, filter out legacy keys
                 if (sharedState.graphs) {
-                    const validLayers: Layer[] = ['context', 'container', 'component', 'code'];
-                    // Start with empty graphs to ensure all C4 layers exist
+                    const validLayers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
+                    // Start with empty graphs to ensure all layers exist
                     const normalizedGraphs: Record<Layer, GraphData> = {
+                        workflow: { nodes: [], edges: [] },
                         context: { nodes: [], edges: [] },
                         container: { nodes: [], edges: [] },
                         component: { nodes: [], edges: [] },
                         code: { nodes: [], edges: [] }
                     };
-                    // Only copy valid C4 layer data from loaded state
+                    // Only copy valid layer data from loaded state
                     for (const layer of validLayers) {
                         if (sharedState.graphs[layer]) {
                             normalizedGraphs[layer] = sharedState.graphs[layer];
+                            // Build indexes for this layer
+                            this.indexes.buildIndexes(layer, normalizedGraphs[layer].nodes, normalizedGraphs[layer].edges);
                         }
                     }
                     this.graphs = normalizedGraphs;
@@ -211,7 +240,7 @@ export class GraphStateManager {
 
                 // Load proposed changes
                 if (sharedState.proposedChanges) {
-                    const layers: Layer[] = ['context', 'container', 'component', 'code'];
+                    const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
                     for (const layer of layers) {
                         this.proposedChangesByLayer[layer].clear();
                         if (sharedState.proposedChanges[layer]) {
@@ -245,80 +274,6 @@ export class GraphStateManager {
         }
     }
 
-    /**
-     * Migrate state from old schema version to current version
-     */
-    private migrateStateSchema(state: any): any {
-        const fromVersion = state.schemaVersion || 0;
-        
-        if (fromVersion === SCHEMA_VERSION) {
-            return state; // Already at current version
-        }
-        
-        console.error(`[GraphStateManager] [Schema Migration] Migrating state from schema v${fromVersion} to v${SCHEMA_VERSION}`);
-        
-        // Migration chain - apply migrations sequentially
-        let migratedState = { ...state };
-        
-        // Migration from v0 (no schemaVersion) to v1
-        if (fromVersion < 1) {
-            migratedState = this.migrateV0ToV1(migratedState);
-        }
-        
-        // Future migrations would go here
-        
-        migratedState.schemaVersion = SCHEMA_VERSION;
-        console.error(`[GraphStateManager] [Schema Migration] ✓ Migration complete: v${fromVersion} -> v${SCHEMA_VERSION}`);
-        
-        return migratedState;
-    }
-
-    /**
-     * Migrate from v0 (no schemaVersion field) to v1
-     */
-    private migrateV0ToV1(state: any): any {
-        const migrated = { ...state };
-        
-        // Add schemaVersion field
-        migrated.schemaVersion = 1;
-        
-        // Ensure all required fields exist with defaults
-        if (!migrated.nodeHistory) {
-            migrated.nodeHistory = {
-                context: {},
-                container: {},
-                component: {},
-                code: {}
-            };
-        }
-        
-        if (!migrated.deletedNodes) {
-            migrated.deletedNodes = {
-                context: [],
-                container: [],
-                component: [],
-                code: []
-            };
-        }
-        
-        if (!migrated.proposedChanges) {
-            migrated.proposedChanges = {
-                context: [],
-                container: [],
-                component: [],
-                code: []
-            };
-        }
-        
-        if (migrated.agentOnlyMode === undefined) {
-            migrated.agentOnlyMode = false;
-        }
-        
-        console.error(`[GraphStateManager] [Schema Migration] ✓ Migrated v0 -> v1: added schemaVersion and missing fields`);
-        
-        return migrated;
-    }
-
     private syncToSharedState(): void {
         // Debounce writes to avoid excessive I/O
         if (this.writeDebounceTimer) {
@@ -333,8 +288,11 @@ export class GraphStateManager {
     }
 
     private async syncToSharedStateImmediate(): Promise<void> {
+        const startTime = Date.now();
         const stateFile = this.getSharedStateFile();
         let releaseLock: (() => Promise<void>) | null = null;
+        
+        console.error(`[GraphStateManager] Starting state sync (current version: ${this.stateVersion})`);
         
         try {
             // Acquire file lock before writing
@@ -349,18 +307,21 @@ export class GraphStateManager {
                     stale: 3000, // 3 second stale timeout
                     realpath: false
                 });
-                console.error(`[GraphStateManager] ✓ Lock acquired`);
+                console.error(`[GraphStateManager] ? Lock acquired`);
             } catch (lockErr) {
-                console.error(`[GraphStateManager] ⚠️  Failed to acquire lock, proceeding without lock: ${lockErr instanceof Error ? lockErr.message : String(lockErr)}`);
+                console.error(`[GraphStateManager] ??  Failed to acquire lock, proceeding without lock: ${lockErr instanceof Error ? lockErr.message : String(lockErr)}`);
                 // Proceed without lock in case of lock acquisition failure
             }
             
             // Read existing state to preserve extension-owned fields
             let existingState: any = null;
+            let existingVersion = 0;
             if (fs.existsSync(stateFile)) {
                 try {
                     const fileContent = fs.readFileSync(stateFile, 'utf-8');
                     existingState = JSON.parse(fileContent);
+                    existingVersion = existingState.version || 0;
+                    console.error(`[GraphStateManager] Read existing state (version ${existingVersion}, ${fileContent.length} bytes)`);
                 } catch (err) {
                     console.error(`[GraphStateManager] Could not read existing state: ${err instanceof Error ? err.message : String(err)}`);
                     console.error(`[GraphStateManager] Will create new state file`);
@@ -368,19 +329,38 @@ export class GraphStateManager {
             }
 
             // Convert proposed changes from Map to Array
-            const layers: Layer[] = ['context', 'container', 'component', 'code'];
+            const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
             const proposedChangesArray: any = {};
             
             for (const layer of layers) {
                 proposedChangesArray[layer] = Array.from(this.proposedChangesByLayer[layer].values());
             }
 
-            // Increment version
-            this.stateVersion += 1;
+            // CRITICAL: Always use file version as source of truth (multi-writer coordination)
+            // Never trust our cached version - extension may have written in between
+            const oldVersion = this.stateVersion;
+            this.stateVersion = existingVersion + 1; // File version + 1
+            console.error(`[GraphStateManager] Version: ${oldVersion} (cached) ? ${existingVersion} (file) ? ${this.stateVersion} (write)`);
 
             // Preserve extension-owned properties when writing nodes
             const preservedGraphs: any = {};
+            let totalNodes = 0;
+            let totalEdges = 0;
+            let agentAddedNodes = 0;
+            
             for (const layer of layers) {
+                const layerNodes = this.graphs[layer].nodes.length;
+                const layerEdges = this.graphs[layer].edges.length;
+                const agentNodesInLayer = this.graphs[layer].nodes.filter(n => n.data.isAgentAdded).length;
+                
+                if (layerNodes > 0 || layerEdges > 0) {
+                    console.error(`[GraphStateManager]   ${layer}: ${layerNodes} nodes (${agentNodesInLayer} agent-added), ${layerEdges} edges`);
+                }
+                
+                totalNodes += layerNodes;
+                totalEdges += layerEdges;
+                agentAddedNodes += agentNodesInLayer;
+                
                 preservedGraphs[layer] = {
                     nodes: this.graphs[layer].nodes.map(node => {
                         // Find corresponding node in existing state
@@ -401,6 +381,8 @@ export class GraphStateManager {
                     edges: this.graphs[layer].edges
                 };
             }
+            
+            console.error(`[GraphStateManager] Total: ${totalNodes} nodes (${agentAddedNodes} agent-added), ${totalEdges} edges`);
 
             // Create shared state object
             const sharedState = {
@@ -420,15 +402,24 @@ export class GraphStateManager {
 
             // Write atomically (temp file + rename)
             const tempFile = stateFile + '.tmp';
-            fs.writeFileSync(tempFile, JSON.stringify(sharedState, null, 2), 'utf-8');
+            const stateJson = JSON.stringify(sharedState, null, 2);
+            fs.writeFileSync(tempFile, stateJson, 'utf-8');
             fs.renameSync(tempFile, stateFile);
-
-            console.error(`[GraphStateManager] Synced state version ${this.stateVersion} (preserved extension properties)`);
+            
+            // Verify write
+            const fileSize = fs.statSync(stateFile).size;
+            const elapsedMs = Date.now() - startTime;
+            
+            console.error(`[GraphStateManager] ? State written successfully:`);
+            console.error(`[GraphStateManager]   Version: ${this.stateVersion}`);
+            console.error(`[GraphStateManager]   File: ${stateFile}`);
+            console.error(`[GraphStateManager]   Size: ${fileSize} bytes (${(fileSize / 1024).toFixed(2)} KB)`);
+            console.error(`[GraphStateManager]   Time: ${elapsedMs}ms`);
             
             // Release lock
             if (releaseLock) {
                 await releaseLock();
-                console.error(`[GraphStateManager] ✓ Lock released`);
+                console.error(`[GraphStateManager] ? Lock released`);
             }
         } catch (err) {
             // Ensure lock is released even on error
@@ -436,7 +427,7 @@ export class GraphStateManager {
                 try {
                     await releaseLock();
                 } catch (releaseErr) {
-                    console.error(`[GraphStateManager] ⚠️  Failed to release lock: ${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`);
+                    console.error(`[GraphStateManager] ??  Failed to release lock: ${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`);
                 }
             }
             
@@ -470,44 +461,57 @@ export class GraphStateManager {
     // GRAPH OPERATIONS
     // ============================================================================
 
-    public getGraph(layer?: Layer): GraphData {
-        const lyr = layer || this.currentLayer;
+    public getGraph(layer?: Layer | string): GraphData {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const graphData = this.graphs[lyr];
         return this.filterAgentOnlyGraph(graphData);
     }
 
-    public setGraph(graphData: GraphData, layer?: Layer): void {
-        const lyr = layer || this.currentLayer;
+    public setGraph(graphData: GraphData, layer?: Layer | string): void {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         this.graphs[lyr] = graphData;
         this.syncToSharedState();
     }
 
-    public addNode(node: GraphNode, layer?: Layer): void {
+    public addNode(node: GraphNode, layer?: Layer | string): void {
         // Validate node structure
         if (!node || !node.data || !node.data.id) {
             throw new Error('Invalid node: must have data.id');
         }
         
-        const lyr = layer || this.currentLayer;
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const graph = this.graphs[lyr];
+        const layerIndexes = this.indexes.getIndexes(lyr);
         
-        // Check if node already exists
-        if (graph.nodes.find(n => n.data.id === node.data.id)) {
+        // Check if node already exists (using index - O(1))
+        if (layerIndexes.hasNode(node.data.id)) {
             throw new Error(`Node with ID '${node.data.id}' already exists in layer '${lyr}'`);
         }
         
         // Mark as agent-added
         node.data.isAgentAdded = true;
         
+        const beforeCount = graph.nodes.length;
         graph.nodes.push(node);
+        layerIndexes.indexNode(node); // Index the new node
+        const afterCount = graph.nodes.length;
+        
+        console.error(`[GraphStateManager] Adding node to ${lyr} layer:`);
+        console.error(`[GraphStateManager]   ID: ${node.data.id}`);
+        console.error(`[GraphStateManager]   Label: ${node.data.label}`);
+        console.error(`[GraphStateManager]   Type: ${node.data.type || 'unspecified'}`);
+        console.error(`[GraphStateManager]   Node count: ${beforeCount} ? ${afterCount}`);
+        console.error(`[GraphStateManager] Syncing to shared state file...`);
+        
         this.syncToSharedState();
         
-        console.error(`[GraphStateManager] Added node '${node.data.id}' to layer '${lyr}'`);
+        console.error(`[GraphStateManager] ? Node added and synced`);
     }
 
-    public removeNode(nodeId: string, layer?: Layer): void {
-        const lyr = layer || this.currentLayer;
+    public removeNode(nodeId: string, layer?: Layer | string): void {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const graph = this.graphs[lyr];
+        const layerIndexes = this.indexes.getIndexes(lyr);
         
         const initialLength = graph.nodes.length;
         graph.nodes = graph.nodes.filter(n => n.data.id !== nodeId);
@@ -516,14 +520,27 @@ export class GraphStateManager {
             throw new Error(`Node with ID '${nodeId}' not found`);
         }
         
+        // Remove from indexes
+        layerIndexes.removeNode(nodeId);
+        
         // Also remove edges connected to this node
+        const edgesToRemove = graph.edges.filter(
+            e => e.data.source === nodeId || e.data.target === nodeId
+        );
+        
         graph.edges = graph.edges.filter(
             e => e.data.source !== nodeId && e.data.target !== nodeId
         );
+        
+        // Remove edges from indexes
+        for (const edge of edgesToRemove) {
+            layerIndexes.removeEdge(edge.data.id);
+        }
+        
         this.syncToSharedState();
     }
 
-    public updateNode(nodeId: string, updates: Partial<GraphNode['data']>, layer?: Layer): void {
+    public updateNode(nodeId: string, updates: Partial<GraphNode['data']>, layer?: Layer | string): void {
         // Validate inputs
         if (!nodeId || typeof nodeId !== 'string') {
             throw new Error('Node ID must be a non-empty string');
@@ -533,10 +550,12 @@ export class GraphStateManager {
             throw new Error('Updates must be an object');
         }
         
-        const lyr = layer || this.currentLayer;
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const graph = this.graphs[lyr];
+        const layerIndexes = this.indexes.getIndexes(lyr);
         
-        const node = graph.nodes.find(n => n.data.id === nodeId);
+        // Use index for O(1) lookup
+        const node = layerIndexes.getNodeById(nodeId);
         if (!node) {
             throw new Error(`Node with ID '${nodeId}' not found in layer '${lyr}' (total nodes: ${graph.nodes.length})`);
         }
@@ -544,12 +563,16 @@ export class GraphStateManager {
         // Apply updates
         Object.assign(node.data, updates);
         node.data.modified = true;
+        
+        // Update indexes
+        layerIndexes.updateNode(nodeId, node);
+        
         this.syncToSharedState();
         
         console.error(`[GraphStateManager] Updated node '${nodeId}' in layer '${lyr}' with ${Object.keys(updates).length} properties`);
     }
 
-    public addEdge(edge: GraphEdge, layer?: Layer): void {
+    public addEdge(edge: GraphEdge, layer?: Layer | string): void {
         // Validate edge structure
         if (!edge || !edge.data) {
             throw new Error('Invalid edge: must have data');
@@ -558,24 +581,26 @@ export class GraphStateManager {
             throw new Error('Invalid edge: must have id, source, and target');
         }
         
-        const lyr = layer || this.currentLayer;
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const graph = this.graphs[lyr];
+        const layerIndexes = this.indexes.getIndexes(lyr);
         
-        // Check if edge already exists
-        if (graph.edges.find(e => e.data.id === edge.data.id)) {
+        // Check if edge already exists (using index - O(1))
+        if (layerIndexes.hasEdge(edge.data.id)) {
             throw new Error(`Edge with ID '${edge.data.id}' already exists in layer '${lyr}'`);
         }
         
         // Validate that source and target nodes exist (check across all layers for cross-layer edges)
-        const allLayers: Layer[] = ['context', 'container', 'component', 'code'];
+        const allLayers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         let sourceExists = false;
         let targetExists = false;
         
         for (const checkLayer of allLayers) {
-            if ((this.graphs[checkLayer]?.nodes ?? []).find(n => n.data.id === edge.data.source)) {
+            const checkIndexes = this.indexes.getIndexes(checkLayer);
+            if (checkIndexes.hasNode(edge.data.source)) {
                 sourceExists = true;
             }
-            if ((this.graphs[checkLayer]?.nodes ?? []).find(n => n.data.id === edge.data.target)) {
+            if (checkIndexes.hasNode(edge.data.target)) {
                 targetExists = true;
             }
             if (sourceExists && targetExists) break;
@@ -589,14 +614,16 @@ export class GraphStateManager {
         }
         
         graph.edges.push(edge);
+        layerIndexes.indexEdge(edge); // Index the new edge
         this.syncToSharedState();
         
         console.error(`[GraphStateManager] Added edge '${edge.data.id}' (${edge.data.source} -> ${edge.data.target}) to layer '${lyr}'`);
     }
 
-    public removeEdge(edgeId: string, layer?: Layer): void {
-        const lyr = layer || this.currentLayer;
+    public removeEdge(edgeId: string, layer?: Layer | string): void {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const graph = this.graphs[lyr];
+        const layerIndexes = this.indexes.getIndexes(lyr);
         
         const initialLength = graph.edges.length;
         graph.edges = graph.edges.filter(e => e.data.id !== edgeId);
@@ -604,10 +631,14 @@ export class GraphStateManager {
         if (graph.edges.length === initialLength) {
             throw new Error(`Edge with ID '${edgeId}' not found`);
         }
+        
+        // Remove from indexes
+        layerIndexes.removeEdge(edgeId);
+        
         this.syncToSharedState();
     }
 
-    public updateEdge(edgeId: string, updates: Partial<GraphEdge['data']>, layer?: Layer): void {
+    public updateEdge(edgeId: string, updates: Partial<GraphEdge['data']>, layer?: Layer | string): void {
         // Validate inputs
         if (!edgeId || typeof edgeId !== 'string') {
             throw new Error('Edge ID must be a non-empty string');
@@ -617,16 +648,22 @@ export class GraphStateManager {
             throw new Error('Updates must be an object');
         }
         
-        const lyr = layer || this.currentLayer;
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const graph = this.graphs[lyr];
+        const layerIndexes = this.indexes.getIndexes(lyr);
         
-        const edge = graph.edges.find(e => e.data.id === edgeId);
+        // Use index for O(1) lookup
+        const edge = layerIndexes.getEdgeById(edgeId);
         if (!edge) {
             throw new Error(`Edge with ID '${edgeId}' not found in layer '${lyr}' (total edges: ${graph.edges.length})`);
         }
         
         // Apply updates
         Object.assign(edge.data, updates);
+        
+        // Update indexes
+        layerIndexes.updateEdge(edgeId, edge);
+        
         this.syncToSharedState();
         
         console.error(`[GraphStateManager] Updated edge '${edgeId}' in layer '${lyr}' with ${Object.keys(updates).length} properties`);
@@ -636,8 +673,8 @@ export class GraphStateManager {
     // PROPOSED CHANGES
     // ============================================================================
 
-    public addProposedChange(nodeId: string, change: Partial<ProposedChange>, layer?: Layer): void {
-        const lyr = layer || this.currentLayer;
+    public addProposedChange(nodeId: string, change: Partial<ProposedChange>, layer?: Layer | string): void {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const existing = this.proposedChangesByLayer[lyr].get(nodeId) || {};
         const merged: ProposedChange = {
             ...existing,
@@ -649,13 +686,13 @@ export class GraphStateManager {
         this.syncToSharedState();
     }
 
-    public listProposedChanges(layer?: Layer): ProposedChange[] {
-        const lyr = layer || this.currentLayer;
+    public listProposedChanges(layer?: Layer | string): ProposedChange[] {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         return Array.from(this.proposedChangesByLayer[lyr].values());
     }
 
-    public clearProposedChange(nodeId: string, layer?: Layer): void {
-        const lyr = layer || this.currentLayer;
+    public clearProposedChange(nodeId: string, layer?: Layer | string): void {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         if (!this.proposedChangesByLayer[lyr].has(nodeId)) {
             throw new Error(`No proposed change found for node '${nodeId}'`);
         }
@@ -663,8 +700,8 @@ export class GraphStateManager {
         this.syncToSharedState();
     }
 
-    public applyProposedChanges(layer?: Layer): { appliedCount: number; notFoundCount: number } {
-        const lyr = layer || this.currentLayer;
+    public applyProposedChanges(layer?: Layer | string): { appliedCount: number; notFoundCount: number } {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         const graph = this.graphs[lyr];
         const proposals = this.proposedChangesByLayer[lyr];
         
@@ -741,6 +778,25 @@ export class GraphStateManager {
     }
 
     // ============================================================================
+    // INDEX ACCESS (NEW)
+    // ============================================================================
+
+    /**
+     * Get indexes for a specific layer
+     */
+    public getIndexes(layer?: Layer | string) {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
+        return this.indexes.getIndexes(lyr);
+    }
+
+    /**
+     * Get all layer indexes
+     */
+    public getAllIndexes() {
+        return this.indexes;
+    }
+
+    // ============================================================================
     // UTILITY
     // ============================================================================
 
@@ -756,19 +812,19 @@ export class GraphStateManager {
     // SEMANTIC CLUSTERING (LLM-based)
     // ============================================================================
 
-    public saveSemanticClustering(clusteringResult: any, layer?: Layer): void {
-        const lyr = layer || this.currentLayer;
+    public saveSemanticClustering(clusteringResult: any, layer?: Layer | string): void {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         this.semanticClusteringByLayer[lyr] = clusteringResult;
         this.syncToSharedState();
     }
 
-    public getSemanticClustering(layer?: Layer): any {
-        const lyr = layer || this.currentLayer;
+    public getSemanticClustering(layer?: Layer | string): any {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         return this.semanticClusteringByLayer[lyr] || null;
     }
 
-    public clearSemanticClustering(layer?: Layer): void {
-        const lyr = layer || this.currentLayer;
+    public clearSemanticClustering(layer?: Layer | string): void {
+        const lyr = layer ? (layer as Layer) : this.currentLayer;
         this.semanticClusteringByLayer[lyr] = null;
         this.syncToSharedState();
     }

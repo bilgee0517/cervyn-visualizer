@@ -37,12 +37,36 @@ const baseLayoutConfig = {
 } as const;
 
 /**
+ * Dagre Layout Configuration
+ * 
+ * Hierarchical layout optimized for workflow/feature dependencies.
+ * Uses top-to-bottom flow to show feature relationships clearly.
+ */
+const dagreConfig = (visibleNodeCount = 10): LayoutConfig => ({
+  name: 'dagre',
+  displayName: '📊 Dagre',
+  description: 'Hierarchical layout for feature dependencies',
+  rankDir: 'TB',        // Top to bottom
+  nodeSep: 60,          // Horizontal spacing between nodes (reduced from 120)
+  rankSep: 80,          // Vertical spacing between ranks (reduced from 150)
+  fit: true,
+  padding: 50,
+  animate: true,
+  animationDuration: 1000,
+  nodeDimensionsIncludeLabels: true,
+  ranker: 'network-simplex', // Optimal rank assignment
+  edgeSep: 20,          // Spacing between edges (reduced from 30)
+  acyclicer: 'greedy',  // Handle cycles
+});
+
+/**
  * fCoSE Layout Configuration
  * 
  * Fast Compound Spring Embedder - research-based algorithm specifically
  * designed for hierarchical graphs with guaranteed no overlaps.
  */
 export const LAYOUT_CONFIGS: Record<string, (visibleNodeCount?: number) => LayoutConfig> = {
+  dagre: dagreConfig,
   fcose: (visibleNodeCount = 10) => ({
     ...baseLayoutConfig,
     name: 'fcose',
@@ -128,30 +152,39 @@ export const LAYOUT_CONFIGS: Record<string, (visibleNodeCount?: number) => Layou
 };
 
 /**
- * Get layout configuration (always returns fCoSE)
+ * Get layout configuration based on layer
+ * - All layers: fCoSE (compound-aware force-directed)
  */
-export function getLayoutConfig(layoutName: string = 'fcose', visibleNodeCount?: number): LayoutConfig {
-  // Only fCoSE is available, ignore layoutName parameter
-  return LAYOUT_CONFIGS.fcose(visibleNodeCount);
+export function getLayoutConfig(layoutName: string = 'fcose', visibleNodeCount?: number, layer?: string): LayoutConfig {
+  // Use fCoSE for all layers (supports compound nodes properly)
+  return LAYOUT_CONFIGS[layoutName]?.(visibleNodeCount) || LAYOUT_CONFIGS.fcose(visibleNodeCount);
 }
 
 /**
- * Get list of available layouts for UI (returns only fCoSE)
+ * Get list of available layouts for UI
  */
 export function getAvailableLayouts(): Array<{ name: string; displayName: string; description: string }> {
-  const config = LAYOUT_CONFIGS.fcose();
-  return [{
-    name: 'fcose',
-    displayName: config.displayName,
-    description: config.description,
-  }];
+  const fcoseConfig = LAYOUT_CONFIGS.fcose();
+  const dagreConfig = LAYOUT_CONFIGS.dagre();
+  return [
+    {
+      name: 'fcose',
+      displayName: fcoseConfig.displayName,
+      description: fcoseConfig.description,
+    },
+    {
+      name: 'dagre',
+      displayName: dagreConfig.displayName,
+      description: dagreConfig.description,
+    }
+  ];
 }
 
 /**
- * Check if a layout name is valid (always returns true for fCoSE)
+ * Check if a layout name is valid
  */
 export function isValidLayout(layoutName: string): boolean {
-  return layoutName === 'fcose';
+  return layoutName === 'fcose' || layoutName === 'dagre';
 }
 
 /**

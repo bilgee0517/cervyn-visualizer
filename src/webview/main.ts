@@ -168,6 +168,10 @@ import { withErrorBoundary, safeMessageHandler } from './shared/error-boundary';
                         if (cytoscapeCore && cytoscapeCore.isReady()) {
                             // Update the UI dropdown to reflect the new layer
                             cytoscapeCore.updateLayerSelector(message.layer);
+                            
+                            // Trigger relayout with layer-appropriate layout (auto-select)
+                            logMessage(vscode, `[main.ts] Triggering relayout for layer: ${message.layer}`);
+                            cytoscapeCore.setLayout('auto');
                         }
                     }, vscode);
                     break;

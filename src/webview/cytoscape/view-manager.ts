@@ -37,6 +37,7 @@ export class ViewManager {
         logMessage(this.vscode, `Applying smart initial state (allNodes: ${allNodes})`);
         
         let updatedCount = 0;
+        let compoundCount = 0;
         
         // Calculate node importance
         cy.nodes().forEach((node: any) => {
@@ -47,23 +48,62 @@ export class ViewManager {
             }
         });
         
-        logMessage(this.vscode, `Smart initial state applied - importance calculated for ${updatedCount} nodes`);
+        // CRITICAL: Mark nodes with children as compound (for LOD system)
+        // This is needed for workflow layer nodes created via MCP
+        // Also fixes stale childCount metadata from graph-state.json
+        cy.nodes().forEach((node: any) => {
+            try {
+                // Check if node has children (is a parent)
+                const children = cy.nodes(`[parent = "${node.id()}"]`);
+                if (children.length > 0) {
+                    // Validate all children actually exist and have valid parent references
+                    let allChildrenValid = true;
+                    children.forEach((child: any) => {
+                        const childParent = child.data('parent');
+                        if (childParent !== node.id()) {
+                            logMessage(this.vscode, `[WARN] Child "${child.id()}" parent mismatch: expected "${node.id()}", got "${childParent}"`);
+                            allChildrenValid = false;
+                        }
+                    });
+                    
+                    if (allChildrenValid) {
+                        // Always update isCompound and childCount (fixes stale data)
+                        if (!node.data('isCompound')) {
+                            node.data('isCompound', true);
+                            // Set collapsed by default (like code layer)
+                            if (node.data('isCollapsed') === undefined) {
+                                node.data('isCollapsed', true);
+                            }
+                            compoundCount++;
+                        }
+                        // CRITICAL: Fix stale childCount (prevents fcose confusion)
+                        const currentChildCount = node.data('childCount') || 0;
+                        if (currentChildCount !== children.length) {
+                            node.data('childCount', children.length);
+                            logMessage(this.vscode, `[INFO] Fixed childCount for "${node.id()}": ${currentChildCount} → ${children.length}`);
+                        }
+                    }
+                } else {
+                    // Node has no children - ensure isCompound is false
+                    if (node.data('isCompound')) {
+                        logMessage(this.vscode, `[WARN] Node "${node.id()}" marked as compound but has no children - removing flag`);
+                        node.data('isCompound', false);
+                        node.data('childCount', 0);
+                    }
+                }
+            } catch (error) {
+                logMessage(this.vscode, `[ERROR] Failed to check children for node "${node.id()}": ${error}`);
+            }
+        });
+        
+        logMessage(this.vscode, `Smart initial state applied - importance: ${updatedCount} nodes, compound flags: ${compoundCount} nodes`);
         
         // Note: Visibility is now controlled by zoom-based LOD system
         // Initial visibility will be set after first layout completes
     }
     
-    /**
-     * Get current depth level from UI dropdown
-     */
-    private getCurrentDepthFromUI(): number {
-        const depthSelect = document.getElementById('depthSelect') as HTMLSelectElement;
-        if (depthSelect) {
-            return parseInt(depthSelect.value) || DEPTH_LEVELS.FOLDERS_ONLY;
-        }
-        return DEPTH_LEVELS.FOLDERS_ONLY;
-    }
-    
+
+
     /**
      * Reapply depth styling (public method for external calls)
      */

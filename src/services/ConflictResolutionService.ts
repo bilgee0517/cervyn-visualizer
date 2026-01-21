@@ -90,7 +90,7 @@ export class ConflictResolutionService {
         };
         
         // Merge each layer's graphs
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         for (const layer of layers) {
             const mergedGraph = this.mergeGraphs(
                 base?.graphs?.[layer],

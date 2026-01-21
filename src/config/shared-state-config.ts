@@ -7,13 +7,32 @@
 
 import * as os from 'os';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import { log } from '../logger';
 
 /**
- * Get the shared state directory (cross-platform)
- * Stored in user's home directory for accessibility by both MCP server and extension
+ * Get the current workspace path
  */
-export function getSharedStateDir(): string {
+export function getWorkspacePath(): string | undefined {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        return undefined;
+    }
+    return workspaceFolders[0].uri.fsPath;
+}
+
+/**
+ * Get the shared state directory (cross-platform)
+ * Stored in workspace's .codebase-visualizer directory for easy access
+ * Falls back to home directory if no workspace is available
+ */
+export function getSharedStateDir(workspacePath?: string): string {
+    // If workspace path provided, store in workspace/.codebase-visualizer
+    if (workspacePath) {
+        return path.join(workspacePath, '.codebase-visualizer');
+    }
+    
+    // Fallback to home directory if no workspace
     const homeDir = os.homedir();
     return path.join(homeDir, '.codebase-visualizer');
 }
@@ -21,15 +40,22 @@ export function getSharedStateDir(): string {
 /**
  * Get the shared state file path
  */
-export function getSharedStateFile(): string {
-    return path.join(getSharedStateDir(), 'graph-state.json');
+export function getSharedStateFile(workspacePath?: string): string {
+    return path.join(getSharedStateDir(workspacePath), 'graph-state.json');
 }
 
 /**
  * Get the state lock file path (for preventing race conditions)
  */
-export function getStateLockFile(): string {
-    return path.join(getSharedStateDir(), 'graph-state.lock');
+export function getStateLockFile(workspacePath?: string): string {
+    return path.join(getSharedStateDir(workspacePath), 'graph-state.lock');
+}
+
+/**
+ * Get the state backup directory path
+ */
+export function getStateBackupDir(workspacePath?: string): string {
+    return path.join(getSharedStateDir(workspacePath), 'backups');
 }
 
 /**
@@ -39,8 +65,9 @@ export function getStateLockFile(): string {
  * Version History:
  * - v1: Initial schema with blueprint/architecture/implementation/dependencies layers
  * - v2: Migrated to C4 Model layers (context/container/component/code)
+ * - v3: Added workflow layer for feature tracking (workflow/context/container/component/code)
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * Shared state file schema
@@ -50,11 +77,15 @@ export interface SharedGraphState {
     version: number; // Incremented on every write for conflict detection
     timestamp: number; // Unix timestamp of last update
     source: 'mcp-server' | 'vscode-extension'; // Who made the last update
-    currentLayer: 'context' | 'container' | 'component' | 'code'; // C4 Model layers
+    currentLayer: 'workflow' | 'context' | 'container' | 'component' | 'code'; // 5-layer system
     agentOnlyMode: boolean;
     
-    // Graph data per layer (C4 Model)
+    // Graph data per layer (5-layer system)
     graphs: {
+        workflow: {
+            nodes: any[];
+            edges: any[];
+        };
         context: {
             nodes: any[];
             edges: any[];
@@ -75,6 +106,14 @@ export interface SharedGraphState {
     
     // Proposed changes per layer
     proposedChanges: {
+        workflow: Array<{
+            nodeId: string;
+            name?: string;
+            summary?: string;
+            intention?: string;
+            additionalInfo?: string;
+            timestamp?: number;
+        }>;
         context: Array<{
             nodeId: string;
             name?: string;
@@ -111,6 +150,11 @@ export interface SharedGraphState {
     
     // Node history per layer (tracks changes over time)
     nodeHistory?: {
+        workflow: Record<string, Array<{
+            timestamp: number;
+            action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
+            details?: string;
+        }>>;
         context: Record<string, Array<{
             timestamp: number;
             action: 'added' | 'changed' | 'removed' | 'deleted' | 'edge-added' | 'edge-changed' | 'edge-removed';
@@ -135,6 +179,7 @@ export interface SharedGraphState {
     
     // Deleted node IDs per layer
     deletedNodes?: {
+        workflow: string[];
         context: string[];
         container: string[];
         component: string[];
@@ -151,27 +196,31 @@ export function createEmptySharedState(): SharedGraphState {
         version: 1,
         timestamp: Date.now(),
         source: 'vscode-extension',
-        currentLayer: 'code', // C4 Model: code layer (was 'implementation')
+        currentLayer: 'code', // 5-layer system: code layer is the main auto-populated layer
         agentOnlyMode: false,
         graphs: {
+            workflow: { nodes: [], edges: [] },
             context: { nodes: [], edges: [] },
             container: { nodes: [], edges: [] },
             component: { nodes: [], edges: [] },
             code: { nodes: [], edges: [] }
         },
         proposedChanges: {
+            workflow: [],
             context: [],
             container: [],
             component: [],
             code: []
         },
         nodeHistory: {
+            workflow: {},
             context: {},
             container: {},
             component: {},
             code: {}
         },
         deletedNodes: {
+            workflow: [],
             context: [],
             container: [],
             component: [],
@@ -205,6 +254,11 @@ export function migrateStateSchema(state: any): SharedGraphState {
     // Migration from v1 to v2 (C4 Model layer names)
     if (fromVersion < 2) {
         migratedState = migrateV1ToV2(migratedState);
+    }
+    
+    // Migration from v2 to v3 (Add workflow layer)
+    if (fromVersion < 3) {
+        migratedState = migrateV2ToV3(migratedState);
     }
     
     migratedState.schemaVersion = SCHEMA_VERSION;
@@ -322,6 +376,39 @@ function migrateV1ToV2(state: any): any {
     }
     
     log(`[Schema Migration] ✓ Migrated v1 -> v2: renamed layers to C4 Model (blueprint→context, architecture→container, implementation→code, dependencies→component)`);
+    
+    return migrated;
+}
+
+/**
+ * Migrate from v2 to v3: Add workflow layer
+ * v2: context, container, component, code (4 layers)
+ * v3: workflow, context, container, component, code (5 layers)
+ */
+function migrateV2ToV3(state: any): any {
+    const migrated = { ...state };
+    
+    // Add workflow layer to graphs
+    if (migrated.graphs) {
+        migrated.graphs.workflow = { nodes: [], edges: [] };
+    }
+    
+    // Add workflow layer to proposedChanges
+    if (migrated.proposedChanges) {
+        migrated.proposedChanges.workflow = [];
+    }
+    
+    // Add workflow layer to nodeHistory
+    if (migrated.nodeHistory) {
+        migrated.nodeHistory.workflow = {};
+    }
+    
+    // Add workflow layer to deletedNodes
+    if (migrated.deletedNodes) {
+        migrated.deletedNodes.workflow = [];
+    }
+    
+    log(`[Schema Migration] ✓ Migrated v2 -> v3: added workflow layer for feature tracking`);
     
     return migrated;
 }

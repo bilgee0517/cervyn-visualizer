@@ -55,14 +55,18 @@ export async function applySemanticClusters(
         // Create a cluster summary node
         clusterNodes.push({
             data: {
-                id: clusterId,
-                label: cluster.name,
-                type: 'cluster',
-                roleDescription: cluster.description || cluster.semanticCategory,
-                isAgentAdded: true,
-                childNodes: cluster.nodeIds || []
-            }
-        });
+            id: clusterId,
+            label: cluster.name,
+            type: 'cluster',
+            roleDescription: cluster.description || cluster.semanticCategory,
+            isAgentAdded: true,
+            isCompound: true,
+            isCollapsed: true,  // Start collapsed like code layer
+            groupType: 'logical' as const,
+            childCount: (cluster.nodeIds || []).length
+            // children managed via parent references
+        }
+    });
 
         // Map each node to its cluster
         (cluster.nodeIds || []).forEach((nodeId: string) => {

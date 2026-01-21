@@ -16,6 +16,7 @@
 
 import { logMessage } from '../shared/utils';
 import { Z_INDEX } from '../../config/spacing';
+import { stateManager } from '../shared/state-manager';
 
 /**
  * Webview-compatible logger with log levels
@@ -63,13 +64,121 @@ class WebviewLogger {
 }
 
 
-// Depth levels for state tracking
+// Depth levels for state tracking (LEGACY - kept for backward compatibility)
 enum DepthLevel {
     FOLDERS = 'FOLDERS',
     FILES = 'FILES',
     CLASSES = 'CLASSES',
     FUNCTIONS = 'FUNCTIONS'
 }
+
+/**
+ * Dynamic depth state for any layer
+ * Replaces hardcoded DepthLevel enum with flexible depth tracking
+ */
+interface LayerDepthState {
+    currentDepth: number;  // 0 = top-only, 1 = show second level, etc.
+    maxDepth: number;      // Max depth for this layer (0-3, based on levelOrder length - 1)
+    visibleLevels: string[]; // e.g., ['top', 'second'] - human-readable level names
+}
+
+/**
+ * Layer-specific hierarchy configuration
+ * Defines what node types exist at each depth level for each layer
+ */
+interface LayerHierarchy {
+    layer: string;
+    levelOrder: string[];  // Ordered list of level names: ['top', 'second', 'third', 'bottom']
+    levels: {
+        // Top level (always visible, typically compound nodes)
+        top: string[];
+        // Second level (shown when zoomed in a bit)
+        second?: string[];
+        // Third level (shown when more zoomed in)
+        third?: string[];
+        // Bottom level (leaf nodes, shown when fully zoomed)
+        bottom?: string[];
+    };
+    // Selector to get all child nodes for this layer (legacy, may be empty for flat layers)
+    childSelector: string;
+    // Whether this layer uses compound nodes (hierarchical structure)
+    isHierarchical: boolean;
+    // Default depth to show on layer load (0-3)
+    defaultDepth: number;
+}
+
+/**
+ * Layer hierarchy configurations for all 5 layers
+ * Each layer defines its depth levels, hierarchy type, and default visibility
+ */
+const LAYER_HIERARCHIES: Record<string, LayerHierarchy> = {
+    // Code layer: directory → file → class → function (4 levels, hierarchical)
+    'code': {
+        layer: 'code',
+        levelOrder: ['top', 'second', 'third', 'bottom'],
+        levels: {
+            top: ['directory'],
+            second: ['file'],
+            third: ['class'],
+            bottom: ['function']
+        },
+        childSelector: '[type="file"],[type="class"],[type="function"]',
+        isHierarchical: true,  // Uses compound nodes (directories contain files, etc.)
+        defaultDepth: 0  // Start with directories only
+    },
+    
+    // Workflow layer: feature-group/user-journey → feature (2 levels, may be flat or hierarchical)
+    'workflow': {
+        layer: 'workflow',
+        levelOrder: ['top', 'second'],
+        levels: {
+            top: ['user-journey', 'feature-group'],
+            second: ['feature']
+        },
+        childSelector: '[type="feature"]',
+        isHierarchical: false,  // Features may exist without parent containers
+        defaultDepth: 1  // Show features by default
+    },
+    
+    // Context layer: flat structure, no hierarchy (1 level)
+    'context': {
+        layer: 'context',
+        levelOrder: ['top'],
+        levels: {
+            top: ['external-system', 'external-api', 'external-dependency', 'database', 'person', 'user-role', 'third-party-service']
+        },
+        childSelector: '',
+        isHierarchical: false,  // All nodes are top-level
+        defaultDepth: 0  // Only one level exists
+    },
+    
+    // Container layer: application → service/microservice (2 levels, may be flat or hierarchical)
+    'container': {
+        layer: 'container',
+        levelOrder: ['top', 'second'],
+        levels: {
+            top: ['application'],
+            second: ['service', 'microservice', 'web-app', 'mobile-app', 'api-gateway', 'database-container']
+        },
+        childSelector: '[type="service"],[type="microservice"],[type="web-app"],[type="mobile-app"],[type="api-gateway"],[type="database-container"]',
+        isHierarchical: false,  // Services may exist without application containers
+        defaultDepth: 1  // Show services by default
+    },
+    
+    // Component layer: package → module → component (3 levels, hierarchical)
+    'component': {
+        layer: 'component',
+        levelOrder: ['top', 'second', 'third'],
+        levels: {
+            top: ['package'],
+            second: ['module'],
+            third: ['component', 'library', 'namespace', 'plugin']
+        },
+        childSelector: '[type="module"],[type="component"],[type="library"],[type="namespace"],[type="plugin"]',
+        isHierarchical: true,  // Uses nested package/module structure
+        defaultDepth: 1  // Show packages and modules by default
+    }
+};
 
 /**
  * Interface for storing compound node dimensions and positions
@@ -114,7 +223,8 @@ export class ZoomBasedLODManager {
     private logger: WebviewLogger;
     private cy: any = null;
     private expandCollapseAPI: any = null;
-    private currentDepthLevel: DepthLevel = DepthLevel.FOLDERS;
+    private currentDepthLevel: DepthLevel = DepthLevel.FOLDERS;  // Legacy - kept for backward compatibility
+    private currentDepthState: LayerDepthState = { currentDepth: 0, maxDepth: 3, visibleLevels: ['top'] };  // New dynamic depth tracking
     private isTransitioning: boolean = false;
     private debounceTimer: any = null;
     private initialized: boolean = false;
@@ -135,6 +245,92 @@ export class ZoomBasedLODManager {
     constructor(vscode: any) {
         this.vscode = vscode;
         this.logger = new WebviewLogger(vscode);
+    }
+    
+    /**
+     * Get the current layer hierarchy configuration
+     */
+    private getCurrentLayerHierarchy(): LayerHierarchy {
+        const currentLayer = stateManager.getCurrentLayer();
+        const hierarchy = LAYER_HIERARCHIES[currentLayer];
+        
+        if (!hierarchy) {
+            this.logger.warn(`No hierarchy defined for layer "${currentLayer}", falling back to code layer`);
+            return LAYER_HIERARCHIES['code'];
+        }
+        
+        return hierarchy;
+    }
+    
+    /**
+     * Build a selector for node types at a specific level
+     * Returns null for empty arrays to prevent matching all nodes
+     */
+    private buildLevelSelector(types: string[] | undefined): string | null {
+        if (!types || types.length === 0) return null;
+        return types.map(type => `[type="${type}"]`).join(',');
+    }
+    
+    /**
+     * Detect current depth level based on what's actually visible
+     * Works for any layer with any number of levels
+     * 
+     * @param hierarchy - Layer hierarchy configuration
+     * @returns Current depth (0 = top only, 1 = top + second, etc.)
+     */
+    private detectCurrentDepth(hierarchy: LayerHierarchy): number {
+        const cy = this.cy;
+        if (!cy) return 0;
+        
+        // Check from deepest to shallowest level
+        for (let i = hierarchy.levelOrder.length - 1; i >= 0; i--) {
+            const levelName = hierarchy.levelOrder[i];
+            const types = hierarchy.levels[levelName as keyof typeof hierarchy.levels];
+            const selector = this.buildLevelSelector(types);
+            
+            if (selector) {
+                const visibleCount = cy.nodes(selector)
+                    .filter((n: any) => n.style('opacity') > 0.5)
+                    .length;
+                
+                if (visibleCount > 0) {
+                    return i; // This is the deepest visible level
+                }
+            }
+        }
+        
+        return 0; // Default to top only
+    }
+    
+    /**
+     * Update legacy DepthLevel enum for backward compatibility
+     * Maps dynamic depth to hardcoded enum values
+     * 
+     * @param depth - Current depth (0-3)
+     */
+    private updateLegacyDepthLevel(depth: number): void {
+        const hierarchy = this.getCurrentLayerHierarchy();
+        
+        // For code layer, map directly to legacy enum
+        if (hierarchy.layer === 'code') {
+            switch (depth) {
+                case 0: this.currentDepthLevel = DepthLevel.FOLDERS; break;
+                case 1: this.currentDepthLevel = DepthLevel.FILES; break;
+                case 2: this.currentDepthLevel = DepthLevel.CLASSES; break;
+                case 3: this.currentDepthLevel = DepthLevel.FUNCTIONS; break;
+                default: this.currentDepthLevel = DepthLevel.FOLDERS;
+            }
+        } else {
+            // For other layers, map depth to generic names
+            // Use FOLDERS/FILES as generic "level 0" and "level 1"
+            switch (depth) {
+                case 0: this.currentDepthLevel = DepthLevel.FOLDERS; break;
+                case 1: this.currentDepthLevel = DepthLevel.FILES; break;
+                case 2: this.currentDepthLevel = DepthLevel.CLASSES; break;
+                case 3: this.currentDepthLevel = DepthLevel.FUNCTIONS; break;
+                default: this.currentDepthLevel = DepthLevel.FOLDERS;
+            }
+        }
     }
     
     /**
@@ -243,14 +439,45 @@ export class ZoomBasedLODManager {
             if (!cy) return;
             
             cy.batch(() => {
-                // Step 1: Always show directories/folders (base level)
-                this.showNodes(cy.nodes('[type="directory"]'), immediate);
+                // Get layer-specific hierarchy
+                const hierarchy = this.getCurrentLayerHierarchy();
                 
-                // Step 2: Hide all children first (we'll show them based on coverage)
-                // BUT: Preserve selected nodes - they should never be hidden
-                const nodesToHide = cy.nodes('[type="file"],[type="class"],[type="function"]')
-                    .filter((node: any) => !node.hasClass('selected')); // Exclude selected nodes
-                this.hideNodes(nodesToHide, immediate);
+                // Step 1: Always show top-level nodes
+                const topSelector = this.buildLevelSelector(hierarchy.levels.top);
+                if (topSelector) {
+                    this.showNodes(cy.nodes(topSelector), immediate);
+                }
+                
+                // Step 2: Hide child nodes based on layer structure
+                // CRITICAL FIX: For hierarchical layers, only hide actual children of compound nodes
+                // For flat layers, this might hide some top-level nodes too, which is correct
+                if (hierarchy.isHierarchical) {
+                    // Hierarchical layers (code, component): Hide children of compound nodes
+                    const compoundNodes = cy.nodes('[isCompound]');
+                    if (compoundNodes.length > 0) {
+                        const childrenToHide = compoundNodes.children()
+                            .filter((node: any) => !node.hasClass('selected'));
+                        this.hideNodes(childrenToHide, immediate);
+                    }
+                } else {
+                    // Flat/mixed layers (workflow, container, context): Hide based on hierarchy levels
+                    // Only hide nodes that are NOT in the top level
+                    const allChildLevels: string[] = [];
+                    for (let i = 1; i < hierarchy.levelOrder.length; i++) {
+                        const levelName = hierarchy.levelOrder[i];
+                        const types = hierarchy.levels[levelName as keyof typeof hierarchy.levels];
+                        if (types && types.length > 0) {
+                            allChildLevels.push(...types);
+                        }
+                    }
+                    
+                    if (allChildLevels.length > 0) {
+                        const childSelector = allChildLevels.map(t => `[type="${t}"]`).join(',');
+                        const nodesToHide = cy.nodes(childSelector)
+                            .filter((node: any) => !node.hasClass('selected'));
+                        this.hideNodes(nodesToHide, immediate);
+                    }
+                }
                 
                 // Step 2.5: Ensure selected nodes and their connected nodes are always visible
                 const selectedNodes = cy.nodes('.selected');
@@ -291,25 +518,20 @@ export class ZoomBasedLODManager {
             // Step 4: Update edge visibility AFTER batch completes (ensures all node opacity changes are committed)
             this.updateEdgeVisibility();
             
-            // Update depth indicator (for UI feedback, but we're using coverage-based)
-            // Check what's visible based on opacity
-            const visibleFiles = cy.nodes('[type="file"]').filter((n: any) => n.style('opacity') > 0.5).length;
-            const visibleClasses = cy.nodes('[type="class"]').filter((n: any) => n.style('opacity') > 0.5).length;
-            const visibleFunctions = cy.nodes('[type="function"]').filter((n: any) => n.style('opacity') > 0.5).length;
+            // Update depth indicator (for UI feedback) using dynamic depth detection
+            const hierarchy = this.getCurrentLayerHierarchy();
+            const detectedDepth = this.detectCurrentDepth(hierarchy);
             
-            if (visibleFunctions > 0) {
-                this.currentDepthLevel = DepthLevel.FUNCTIONS;
-                this.updateDepthIndicator(DepthLevel.FUNCTIONS);
-            } else if (visibleClasses > 0) {
-                this.currentDepthLevel = DepthLevel.CLASSES;
-                this.updateDepthIndicator(DepthLevel.CLASSES);
-            } else if (visibleFiles > 0) {
-                this.currentDepthLevel = DepthLevel.FILES;
-                this.updateDepthIndicator(DepthLevel.FILES);
-            } else {
-                this.currentDepthLevel = DepthLevel.FOLDERS;
-                this.updateDepthIndicator(DepthLevel.FOLDERS);
-            }
+            // Update depth state
+            this.currentDepthState = {
+                currentDepth: detectedDepth,
+                maxDepth: hierarchy.levelOrder.length - 1,
+                visibleLevels: hierarchy.levelOrder.slice(0, detectedDepth + 1)
+            };
+            
+            // Also update legacy depth level for backward compatibility
+            this.updateLegacyDepthLevel(detectedDepth);
+            this.updateDepthIndicator(this.currentDepthLevel);
             
         } catch (error) {
             this.logger.error('Error during coverage-based visibility update', error);
@@ -401,30 +623,67 @@ export class ZoomBasedLODManager {
     }
     
     /**
-     * Transition to a specific depth level
+     * Show nodes up to a specific depth level (generic, works for any layer)
+     * 
+     * @param depth - Depth to show (0 = top only, 1 = top + second, 2 = top + second + third, etc.)
+     * @param immediate - Whether to apply immediately (no animation)
+     */
+    private showUpToLevel(depth: number, immediate: boolean): void {
+        const cy = this.cy;
+        const hierarchy = this.getCurrentLayerHierarchy();
+        
+        // Clamp depth to valid range
+        const maxDepth = hierarchy.levelOrder.length - 1;
+        const targetDepth = Math.max(0, Math.min(depth, maxDepth));
+        
+        // Show all levels up to target depth
+        for (let i = 0; i <= targetDepth; i++) {
+            const levelName = hierarchy.levelOrder[i];
+            const types = hierarchy.levels[levelName as keyof typeof hierarchy.levels];
+            const selector = this.buildLevelSelector(types);
+            
+            if (selector) {
+                this.showNodes(cy.nodes(selector), immediate);
+            }
+        }
+        
+        // Hide all levels beyond target depth
+        const nodesToHide: any[] = [];
+        for (let i = targetDepth + 1; i < hierarchy.levelOrder.length; i++) {
+            const levelName = hierarchy.levelOrder[i];
+            const types = hierarchy.levels[levelName as keyof typeof hierarchy.levels];
+            const selector = this.buildLevelSelector(types);
+            
+            if (selector) {
+                nodesToHide.push(...cy.nodes(selector).toArray());
+            }
+        }
+        
+        if (nodesToHide.length > 0) {
+            this.hideNodes(cy.collection(nodesToHide), immediate);
+        }
+        
+        this.logger.debug(`Showing depth up to level ${targetDepth} (${hierarchy.levelOrder[targetDepth]})`);
+    }
+    
+    /**
+     * Transition to a specific depth level (legacy, uses enum)
      */
     private transitionToDepthLevel(targetLevel: DepthLevel, immediate: boolean): void {
         const cy = this.cy;
         
+        // Map legacy enum to depth number
+        let depth = 0;
+        switch (targetLevel) {
+            case DepthLevel.FOLDERS: depth = 0; break;
+            case DepthLevel.FILES: depth = 1; break;
+            case DepthLevel.CLASSES: depth = 2; break;
+            case DepthLevel.FUNCTIONS: depth = 3; break;
+        }
+        
         // Use batch for performance
         cy.batch(() => {
-            switch (targetLevel) {
-                case DepthLevel.FOLDERS:
-                    this.showFoldersOnly(immediate);
-                    break;
-                    
-                case DepthLevel.FILES:
-                    this.showFiles(immediate);
-                    break;
-                    
-                case DepthLevel.CLASSES:
-                    this.showClasses(immediate);
-                    break;
-                    
-                case DepthLevel.FUNCTIONS:
-                    this.showFunctions(immediate);
-                    break;
-            }
+            this.showUpToLevel(depth, immediate);
         });
         
         // Update edges based on visible nodes AFTER batch completes (ensures all node opacity changes are committed)
@@ -434,52 +693,113 @@ export class ZoomBasedLODManager {
     }
     
     /**
-     * Show folders only (most zoomed out)
+     * Show folders only (most zoomed out) - layer-aware
      */
     private showFoldersOnly(immediate: boolean): void {
         const cy = this.cy;
+        const hierarchy = this.getCurrentLayerHierarchy();
         
-        // Hide files, classes, and functions
-        this.hideNodes(cy.nodes('[type="file"],[type="class"],[type="function"]'), immediate);
+        // Show only top-level nodes
+        const topSelector = this.buildLevelSelector(hierarchy.levels.top);
+        if (topSelector) {
+            this.showNodes(cy.nodes(topSelector), immediate);
+        }
         
-        // Show only directories
-        this.showNodes(cy.nodes('[type="directory"]'), immediate);
+        // Hide all child nodes
+        if (hierarchy.childSelector) {
+            this.hideNodes(cy.nodes(hierarchy.childSelector), immediate);
+        }
     }
     
     /**
-     * Show files (manual depth level)
+     * Show files (manual depth level) - layer-aware
      */
     private showFiles(immediate: boolean): void {
         const cy = this.cy;
+        const hierarchy = this.getCurrentLayerHierarchy();
         
-        // Show directories and files
-        this.showNodes(cy.nodes('[type="directory"],[type="file"]'), immediate);
+        // Show top and second level
+        const topSelector = this.buildLevelSelector(hierarchy.levels.top);
+        const secondSelector = this.buildLevelSelector(hierarchy.levels.second);
         
-        // Hide classes and functions
-        this.hideNodes(cy.nodes('[type="class"],[type="function"]'), immediate);
+        if (topSelector) {
+            this.showNodes(cy.nodes(topSelector), immediate);
+        }
+        if (secondSelector) {
+            this.showNodes(cy.nodes(secondSelector), immediate);
+        }
+        
+        // Hide third and bottom levels
+        const thirdSelector = this.buildLevelSelector(hierarchy.levels.third);
+        const bottomSelector = this.buildLevelSelector(hierarchy.levels.bottom);
+        
+        const nodesToHide: any[] = [];
+        if (thirdSelector) {
+            nodesToHide.push(...cy.nodes(thirdSelector).toArray());
+        }
+        if (bottomSelector) {
+            nodesToHide.push(...cy.nodes(bottomSelector).toArray());
+        }
+        
+        if (nodesToHide.length > 0) {
+            this.hideNodes(cy.collection(nodesToHide), immediate);
+        }
     }
     
     /**
-     * Show classes (manual depth level)
+     * Show classes (manual depth level) - layer-aware
      */
     private showClasses(immediate: boolean): void {
         const cy = this.cy;
+        const hierarchy = this.getCurrentLayerHierarchy();
         
-        // Show directories, files, and classes
-        this.showNodes(cy.nodes('[type="directory"],[type="file"],[type="class"]'), immediate);
+        // Show top, second, and third levels
+        const topSelector = this.buildLevelSelector(hierarchy.levels.top);
+        const secondSelector = this.buildLevelSelector(hierarchy.levels.second);
+        const thirdSelector = this.buildLevelSelector(hierarchy.levels.third);
         
-        // Hide functions
-        this.hideNodes(cy.nodes('[type="function"]'), immediate);
+        if (topSelector) {
+            this.showNodes(cy.nodes(topSelector), immediate);
+        }
+        if (secondSelector) {
+            this.showNodes(cy.nodes(secondSelector), immediate);
+        }
+        if (thirdSelector) {
+            this.showNodes(cy.nodes(thirdSelector), immediate);
+        }
+        
+        // Hide only bottom level
+        const bottomSelector = this.buildLevelSelector(hierarchy.levels.bottom);
+        if (bottomSelector) {
+            this.hideNodes(cy.nodes(bottomSelector), immediate);
+        }
     }
     
     /**
-     * Show functions (most zoomed in)
+     * Show functions (most zoomed in) - layer-aware
      */
     private showFunctions(immediate: boolean): void {
         const cy = this.cy;
+        const hierarchy = this.getCurrentLayerHierarchy();
         
-        // Show all nodes
-        this.showNodes(cy.nodes(), immediate);
+        // Show all levels
+        const topSelector = this.buildLevelSelector(hierarchy.levels.top);
+        const secondSelector = this.buildLevelSelector(hierarchy.levels.second);
+        const thirdSelector = this.buildLevelSelector(hierarchy.levels.third);
+        const bottomSelector = this.buildLevelSelector(hierarchy.levels.bottom);
+        
+        if (topSelector) {
+            this.showNodes(cy.nodes(topSelector), immediate);
+        }
+        if (secondSelector) {
+            this.showNodes(cy.nodes(secondSelector), immediate);
+        }
+        if (thirdSelector) {
+            this.showNodes(cy.nodes(thirdSelector), immediate);
+        }
+        if (bottomSelector) {
+            this.showNodes(cy.nodes(bottomSelector), immediate);
+        }
     }
     
     /**
@@ -487,6 +807,7 @@ export class ZoomBasedLODManager {
      * Uses opacity instead of display to keep nodes in DOM for bounding box calculations
      * Preserves selected state (doesn't override selected styling)
      */
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private showNodes(nodes: any, _immediate: boolean): void {
         if (nodes.length === 0) return;
         
@@ -533,6 +854,7 @@ export class ZoomBasedLODManager {
      * This prevents compound nodes from resizing when children are hidden
      * CRITICAL: Selected nodes are never hidden - they are filtered out before calling this method
      */
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private hideNodes(nodes: any, _immediate: boolean): void {
         if (nodes.length === 0) return;
         
@@ -779,7 +1101,7 @@ export class ZoomBasedLODManager {
     }
     
     /**
-     * Update depth indicator in UI
+     * Update depth indicator in UI (legacy method for backward compatibility)
      */
     private updateDepthIndicator(level: DepthLevel): void {
         const depthSelect = document.getElementById('depthSelect') as HTMLSelectElement;
@@ -803,7 +1125,56 @@ export class ZoomBasedLODManager {
     }
     
     /**
-     * Get current depth level
+     * Get layer-aware depth labels for UI
+     * Returns human-readable names for each depth level in the current layer
+     * 
+     * @returns Array of depth labels (e.g., ['Folders', 'Files'] for code layer)
+     */
+    public getDepthLabelsForCurrentLayer(): string[] {
+        const hierarchy = this.getCurrentLayerHierarchy();
+        
+        // Layer-specific labels for better UX
+        const labelMappings: Record<string, Record<string, string>> = {
+            'code': {
+                'top': 'Folders',
+                'second': 'Files',
+                'third': 'Classes',
+                'bottom': 'Functions'
+            },
+            'workflow': {
+                'top': 'Containers',
+                'second': 'Features'
+            },
+            'context': {
+                'top': 'Overview'
+            },
+            'container': {
+                'top': 'Applications',
+                'second': 'Services'
+            },
+            'component': {
+                'top': 'Packages',
+                'second': 'Modules',
+                'third': 'Components'
+            }
+        };
+        
+        const layerLabels = labelMappings[hierarchy.layer] || {};
+        
+        return hierarchy.levelOrder.map(level => {
+            return layerLabels[level] || level.charAt(0).toUpperCase() + level.slice(1);
+        });
+    }
+    
+    /**
+     * Get current depth state (for UI/debugging)
+     */
+    public getCurrentDepthState(): LayerDepthState {
+        return this.currentDepthState;
+    }
+    
+    /**
+     * Get current depth level (legacy, for backward compatibility)
      */
     public getCurrentDepthLevel(): DepthLevel {
         return this.currentDepthLevel;
@@ -850,11 +1221,40 @@ export class ZoomBasedLODManager {
     
     /**
      * Manually set depth level (for manual depth control when adaptive zoom is off)
+     * Legacy method using enum - kept for backward compatibility
      */
     public manuallySetDepthLevel(level: DepthLevel): void {
         this.logger.log(`Manual depth set to ${level}`);
         this.currentDepthLevel = level;
         this.transitionToDepthLevel(level, false);
+    }
+    
+    /**
+     * Manually set depth by number (layer-aware, works for any layer)
+     * 
+     * @param depth - Depth level (0 = top only, 1 = top + second, etc.)
+     */
+    public manuallySetDepth(depth: number): void {
+        const hierarchy = this.getCurrentLayerHierarchy();
+        const maxDepth = hierarchy.levelOrder.length - 1;
+        const clampedDepth = Math.max(0, Math.min(depth, maxDepth));
+        
+        this.logger.log(`Manual depth set to ${clampedDepth} (${hierarchy.levelOrder[clampedDepth]})`);
+        
+        const cy = this.cy;
+        cy.batch(() => {
+            this.showUpToLevel(clampedDepth, false);
+        });
+        
+        // Update edges and state
+        this.updateEdgeVisibility();
+        this.currentDepthState = {
+            currentDepth: clampedDepth,
+            maxDepth: maxDepth,
+            visibleLevels: hierarchy.levelOrder.slice(0, clampedDepth + 1)
+        };
+        this.updateLegacyDepthLevel(clampedDepth);
+        this.updateDepthIndicator(this.currentDepthLevel);
     }
     
     /**

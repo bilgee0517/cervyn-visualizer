@@ -58,14 +58,14 @@ async function runTests() {
                 roleDescription: 'A test component for state sync verification',
                 technology: 'TypeScript'
             }
-        }, 'architecture');
+        }, 'component');
         console.log(`✓ Node added with ID: ${nodeId}`);
 
         await sleep(200);
 
         state = readSharedState();
         console.log(`State version after addNode: ${state.version}`);
-        const foundNode = state.graphs.architecture.nodes.find((n: any) => n.data.id === nodeId);
+        const foundNode = state.graphs.component.nodes.find((n: any) => n.data.id === nodeId);
         if (foundNode) {
             console.log(`✓ Node found in shared state file`);
             console.log(`✓ Node is agent-added: ${foundNode.data.isAgentAdded}`);
@@ -79,14 +79,14 @@ async function runTests() {
             name: 'Add TypeScript interfaces',
             summary: 'Define proper type interfaces',
             intention: 'Improve type safety'
-        }, 'architecture');
+        }, 'component');
         console.log('✓ Proposed change added');
 
         await sleep(200);
 
         state = readSharedState();
         console.log(`State version after proposeChange: ${state.version}`);
-        const proposedChange = state.proposedChanges.architecture.find((c: any) => c.nodeId === nodeId);
+        const proposedChange = state.proposedChanges.component.find((c: any) => c.nodeId === nodeId);
         if (proposedChange) {
             console.log(`✓ Proposed change found in state file`);
             console.log(`  Name: ${proposedChange.name}`);
@@ -108,16 +108,16 @@ async function runTests() {
 
         // Test 5: Apply proposed changes
         console.log('\n--- Test 5: Apply Proposed Changes ---');
-        const result = manager.applyProposedChanges('architecture');
+        const result = manager.applyProposedChanges('component');
         console.log(`✓ Applied ${result.appliedCount} changes`);
 
         await sleep(200);
 
         state = readSharedState();
         console.log(`State version after apply: ${state.version}`);
-        console.log(`Remaining proposed changes: ${state.proposedChanges.architecture.length}`);
+        console.log(`Remaining proposed changes: ${state.proposedChanges.component.length}`);
 
-        const updatedNode = state.graphs.architecture.nodes.find((n: any) => n.data.id === nodeId);
+        const updatedNode = state.graphs.component.nodes.find((n: any) => n.data.id === nodeId);
         if (updatedNode && updatedNode.data.modified) {
             console.log(`✓ Node marked as modified after applying changes`);
         }
@@ -133,7 +133,7 @@ async function runTests() {
                 roleDescription: 'Utility service',
                 technology: 'TypeScript'
             }
-        }, 'architecture');
+        }, 'component');
 
         const edgeId = `edge-${Date.now()}`;
         manager.addEdge({
@@ -143,14 +143,14 @@ async function runTests() {
                 target: targetNodeId,
                 label: 'uses'
             }
-        }, 'architecture');
+        }, 'component');
         console.log(`✓ Edge added with ID: ${edgeId}`);
 
         await sleep(200);
 
         state = readSharedState();
         console.log(`State version after addEdge: ${state.version}`);
-        const foundEdge = state.graphs.architecture.edges.find((e: any) => e.data.id === edgeId);
+        const foundEdge = state.graphs.component.edges.find((e: any) => e.data.id === edgeId);
         if (foundEdge) {
             console.log(`✓ Edge found in shared state file`);
         } else {
@@ -159,8 +159,8 @@ async function runTests() {
 
         // Test 7: Switch layer
         console.log('\n--- Test 7: Switch Layer ---');
-        manager.setCurrentLayer('blueprint');
-        console.log('✓ Switched to blueprint layer');
+        manager.setCurrentLayer('context');
+        console.log('✓ Switched to context layer');
 
         await sleep(200);
 
@@ -177,8 +177,8 @@ async function runTests() {
         console.log(`Final state source: ${finalState.source}`);
         console.log(`Current layer: ${finalState.currentLayer}`);
         console.log(`Agent-only mode: ${finalState.agentOnlyMode}`);
-        console.log(`Total nodes in architecture layer: ${finalState.graphs.architecture.nodes.length}`);
-        console.log(`Total edges in architecture layer: ${finalState.graphs.architecture.edges.length}`);
+        console.log(`Total nodes in component layer: ${finalState.graphs.component.nodes.length}`);
+        console.log(`Total edges in component layer: ${finalState.graphs.component.edges.length}`);
         
         console.log('\n✓ All state synchronization tests passed!');
         console.log('\n📁 Shared state file location:');

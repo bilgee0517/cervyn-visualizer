@@ -45,3 +45,6 @@ coverage/
 # Compiled JavaScript in source directories (should only be in dist/)
 mcp-server/src/**/*.js
 mcp-server/src/**/*.js.map
+
+# Codebase visualizer state (graph data and backups)
+.codebase-visualizer/

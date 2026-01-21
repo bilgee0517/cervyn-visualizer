@@ -43,7 +43,16 @@ export class CytoscapeRenderer implements IGraphRenderer {
         
         // Listen for incremental structural changes (from MCP server) - preserves zoom/state
         this.graphService.onGraphChangedIncremental(({ layer, addedNodes, addedEdges, removedNodeIds, fullGraph }) => {
-            log(`[CytoscapeRenderer] Incremental structural change detected for ${layer} layer`);
+            const eventReceivedTime = Date.now();
+            const addedNodeIds = addedNodes.map(n => n.data.id);
+            log(`[CytoscapeRenderer] Incremental structural change detected for ${layer} layer: +${addedNodes.length} nodes, +${addedEdges.length} edges, -${removedNodeIds.length} nodes`);
+            
+            if (addedNodeIds.length > 0) {
+                const displayIds = addedNodeIds.slice(0, 5);
+                const remaining = addedNodeIds.length - displayIds.length;
+                log(`[CytoscapeRenderer]   Added node IDs: ${displayIds.join(', ')}${remaining > 0 ? ` (+${remaining} more)` : ''}`);
+            }
+            
             if (layer === this.currentLayer) {
                 // Create removed node objects (we only have IDs, so create minimal node objects)
                 // The actual node data isn't needed for removal - just the IDs
@@ -57,7 +66,13 @@ export class CytoscapeRenderer implements IGraphRenderer {
                     edges: addedEdges
                 };
                 
+                const beforeUpdateTime = Date.now();
                 this.updateWebviewIncremental(fullGraph, changedGraph, removedNodes);
+                const afterUpdateTime = Date.now();
+                
+                log(`[CytoscapeRenderer] ✓ Webview updated in ${afterUpdateTime - beforeUpdateTime}ms (total event latency: ${afterUpdateTime - eventReceivedTime}ms)`);
+            } else {
+                log(`[CytoscapeRenderer] Skipping update - event for ${layer} but current layer is ${this.currentLayer}`);
             }
         });
         
@@ -192,7 +207,7 @@ export class CytoscapeRenderer implements IGraphRenderer {
                 }
                 case 'changeLayer': {
                     // User changed layer via dropdown in webview
-                    if (typeof data.layer === 'string' && ['context','container','component','code'].includes(data.layer)) {
+                    if (typeof data.layer === 'string' && ['workflow','context','container','component','code'].includes(data.layer)) {
                         log(`[CytoscapeRenderer] Layer change requested from webview: ${data.layer}`);
                         this.setLayer(data.layer);
                     } else {
@@ -507,7 +522,7 @@ export class CytoscapeRenderer implements IGraphRenderer {
             this._view.webview.postMessage({
                 type: 'updateGraph',
                 graph: graphData,
-                layout: this.currentLayout,
+                layout: 'auto', // Auto-select layout based on layer (dagre for workflow, fcose for others)
                 layer: this.currentLayer,
                 activeFilePath: activeFilePath,
                 newlyAddedNodeIds: fromStateSync ? newlyAddedNodeIds : undefined,
@@ -527,28 +542,37 @@ export class CytoscapeRenderer implements IGraphRenderer {
         removedNodes: GraphNode[]
     ) {
         if (this._view) {
+            const startTime = Date.now();
             const activeEditor = vscode.window.activeTextEditor;
             const activeFilePath = activeEditor?.document.uri.fsPath;
             
             // Extract newly added node IDs for selection
             const newlyAddedNodeIds = changedGraph.nodes.map(n => n.data.id);
             
-            log(`[CytoscapeRenderer] Sending incremental update: +${changedGraph.nodes.length} nodes, -${removedNodes.length} nodes`);
+            log(`[CytoscapeRenderer] Preparing incremental update message: +${changedGraph.nodes.length} nodes, +${changedGraph.edges.length} edges, -${removedNodes.length} nodes`);
             if (newlyAddedNodeIds.length > 0) {
-                log(`[CytoscapeRenderer] Newly added node IDs for selection: ${newlyAddedNodeIds.slice(0, 10).join(', ')}${newlyAddedNodeIds.length > 10 ? '...' : ''}`);
+                const displayIds = newlyAddedNodeIds.slice(0, 5);
+                const remaining = newlyAddedNodeIds.length - displayIds.length;
+                log(`[CytoscapeRenderer]   Node IDs: ${displayIds.join(', ')}${remaining > 0 ? ` (+${remaining} more)` : ''}`);
             }
             
-            this._view.webview.postMessage({
+            const message = {
                 type: 'updateGraphIncremental',
                 addedNodes: changedGraph.nodes,
                 addedEdges: changedGraph.edges,
                 removedNodeIds: removedNodes.map(n => n.data.id),
                 fullGraph: fullGraph, // Send full graph for reference
-                layout: this.currentLayout,
+                layout: 'auto', // Auto-select layout based on layer (dagre for workflow, fcose for others)
                 layer: this.currentLayer,
                 activeFilePath: activeFilePath,
                 newlyAddedNodeIds: newlyAddedNodeIds.length > 0 ? newlyAddedNodeIds : undefined
-            });
+            };
+            
+            const messageSize = JSON.stringify(message).length;
+            this._view.webview.postMessage(message);
+            const elapsedMs = Date.now() - startTime;
+            
+            log(`[CytoscapeRenderer] ✓ Incremental update message sent to webview (${messageSize} bytes, ${elapsedMs}ms)`);
         } else {
             log('[CytoscapeRenderer] Cannot update webview - _view is null');
         }

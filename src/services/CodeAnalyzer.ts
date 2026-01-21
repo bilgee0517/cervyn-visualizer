@@ -42,6 +42,12 @@ export class CodeAnalyzer {
         }
         
         switch (layer) {
+            case 'workflow':
+                // Workflow layer: User-facing features and capabilities
+                // NOTE: This layer is populated by AI agents via MCP server, not by code analysis
+                // Return empty to allow agent-added nodes to be shown
+                log('[CodeAnalyzer] Workflow layer is agent-managed (no codebase analysis)');
+                return { nodes: [], edges: [] };
             case 'context':
                 // C4 Level 1: External systems - APIs, databases, external services
                 // TODO: Not yet implemented - will show external dependencies
