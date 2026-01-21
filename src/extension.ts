@@ -116,16 +116,16 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codebaseVisualizer.setLayer', async () => {
-            // C4 Model Visualization Layers
-            // Currently only Code layer is implemented
+            // Multi-Layer Visualization: Workflow (features) + C4 Model (architecture)
             const layers = [
-                { label: 'Context', value: 'context', description: 'External dependencies (not yet implemented)' },
-                { label: 'Container', value: 'container', description: 'Top-level folders (not yet implemented)' },
-                { label: 'Component', value: 'component', description: 'Files and imports (not yet implemented)' },
-                { label: 'Code', value: 'code', description: 'Classes, functions, methods (fully implemented)' }
+                { label: 'Workflow', value: 'workflow', description: 'User-facing features and capabilities' },
+                { label: 'Context', value: 'context', description: 'External dependencies and system boundaries' },
+                { label: 'Container', value: 'container', description: 'High-level application architecture' },
+                { label: 'Component', value: 'component', description: 'Internal modules and packages' },
+                { label: 'Code', value: 'code', description: 'Classes, functions, methods (auto-populated)' }
             ];
             const selected = await vscode.window.showQuickPick(layers, {
-                placeHolder: 'Select C4 visualization layer'
+                placeHolder: 'Select visualization layer'
             });
             if (selected) {
                 graphViewProvider.setLayer(selected.value as any);

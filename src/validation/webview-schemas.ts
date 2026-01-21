@@ -22,9 +22,9 @@ export const LayoutTypeSchema = z.enum([
 ]);
 
 /**
- * Layer schema
+ * Layer schema (5-layer system with workflow)
  */
-export const LayerSchema = z.enum(['blueprint', 'architecture', 'implementation', 'dependencies']);
+export const LayerSchema = z.enum(['workflow', 'context', 'container', 'component', 'code']);
 
 /**
  * Base message schema

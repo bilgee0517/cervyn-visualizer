@@ -8,9 +8,9 @@
 import { z } from 'zod';
 
 /**
- * Layer enum schema (C4 Model)
+ * Layer enum schema (C4 Model + Workflow)
  */
-export const LayerSchema = z.enum(['context', 'container', 'component', 'code']);
+export const LayerSchema = z.enum(['workflow', 'context', 'container', 'component', 'code']);
 
 /**
  * Progress status enum schema

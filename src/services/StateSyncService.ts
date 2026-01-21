@@ -13,7 +13,8 @@ import {
     SharedGraphState, 
     createEmptySharedState,
     SCHEMA_VERSION,
-    migrateStateSchema
+    migrateStateSchema,
+    getWorkspacePath
 } from '../config/shared-state-config';
 import { log, error as logError } from '../logger';
 import { 
@@ -33,29 +34,36 @@ import { statePruningService } from './StatePruningService';
 export class StateSyncService {
     private fileWatcher?: fs.FSWatcher;
     private lastKnownVersion: number = 0;
+    private lastWrittenVersion: number = 0; // Track versions we write (for debugging)
     private onStateChangedEmitter = new vscode.EventEmitter<SharedGraphState>();
     public readonly onStateChanged = this.onStateChangedEmitter.event;
     
-    private isWriting: boolean = false; // Prevent feedback loops
     private writeDebounceTimer?: NodeJS.Timeout;
+    private isWriting: boolean = false; // For debugging/logging only, not for control flow
     private fileChangeDebounceTimer?: NodeJS.Timeout; // Debounce file watcher events
     private readonly DEBOUNCE_MS = 150; // Single debounce for all operations
+    private workspacePath?: string;
 
     constructor() {
+        // Get workspace path for workspace-specific state file
+        this.workspacePath = getWorkspacePath();
+        console.log(`[StateSyncService] Constructor called`);
         log(`[StateSyncService] Constructor called`);
         this.ensureStateDirectory();
         // Initialize state file asynchronously
         this.initializeStateFile().catch(err => {
+            console.log(`[StateSyncService] Error during initialization: ${err instanceof Error ? err.message : String(err)}`);
             log(`[StateSyncService] Error during initialization: ${err instanceof Error ? err.message : String(err)}`);
         });
-        log(`[StateSyncService] Initialized. State file: ${getSharedStateFile()}`);
+        console.log(`[StateSyncService] Initialized. State file: ${getSharedStateFile(this.workspacePath)}`);
+        log(`[StateSyncService] Initialized. State file: ${getSharedStateFile(this.workspacePath)}`);
     }
 
     /**
      * Ensure the shared state directory exists
      */
     private ensureStateDirectory(): void {
-        const stateDir = getSharedStateDir();
+        const stateDir = getSharedStateDir(this.workspacePath);
         log(`[StateSyncService] Ensuring state directory exists: ${stateDir}`);
         
         try {
@@ -86,7 +94,7 @@ export class StateSyncService {
      * Initialize the state file if it doesn't exist
      */
     private async initializeStateFile(): Promise<void> {
-        const stateFile = getSharedStateFile();
+        const stateFile = getSharedStateFile(this.workspacePath);
         log(`[StateSyncService] Checking state file: ${stateFile}`);
         
         try {
@@ -126,30 +134,47 @@ export class StateSyncService {
 
     /**
      * Start watching the state file for changes using Node.js fs.watch()
-     * This works reliably for files outside the workspace (like ~/.codebase-visualizer/)
+     * Watches the DIRECTORY to handle atomic writes (temp file + rename)
      */
     public startWatching(): void {
         if (this.fileWatcher) {
+            console.log('[StateSyncService] Already watching state file, skipping...');
             log('[StateSyncService] Already watching state file, skipping...');
             return; // Already watching
         }
 
-        const stateFile = getSharedStateFile();
-        const stateDir = getSharedStateDir();
+        const stateFile = getSharedStateFile(this.workspacePath);
+        const stateDir = getSharedStateDir(this.workspacePath);
+        const stateFileName = 'graph-state.json';
 
-        log(`[StateSyncService] Starting to watch state file: ${stateFile}`);
-        log(`[StateSyncService] Watch directory: ${stateDir}`);
+        console.log(`[StateSyncService] Starting to watch directory: ${stateDir}`);
+        console.log(`[StateSyncService] Monitoring file: ${stateFileName}`);
+        console.log(`[StateSyncService] Full path: ${stateFile}`);
+        console.log(`[StateSyncService] Current version: ${this.lastKnownVersion}`);
+        log(`[StateSyncService] Starting to watch directory: ${stateDir}`);
+        log(`[StateSyncService] Monitoring file: ${stateFileName}`);
+        log(`[StateSyncService] Full path: ${stateFile}`);
         log(`[StateSyncService] Current version: ${this.lastKnownVersion}`);
 
-        // Use Node.js fs.watch() for reliable file watching outside workspace
+        // Watch the DIRECTORY instead of the file to handle atomic writes (temp + rename)
+        // This ensures we catch changes even when the file inode changes
         try {
-            this.fileWatcher = fs.watch(stateFile, (eventType) => {
-                log(`[StateSyncService] File change detected (${eventType})`);
-                
-                // Handle 'rename' events (file created, deleted, or renamed)
-                if (eventType === 'rename' && !fs.existsSync(stateFile)) {
-                    log('[StateSyncService] File was deleted, will recreate on next access');
+            this.fileWatcher = fs.watch(stateDir, (eventType, filename) => {
+                // Only process changes to our specific file
+                if (filename !== stateFileName) {
                     return;
+                }
+                
+                console.log(`[StateSyncService] File change detected: ${filename} (${eventType})`);
+                log(`[StateSyncService] File change detected: ${filename} (${eventType})`);
+                
+                // Handle 'rename' events (file created, deleted, or renamed during atomic write)
+                if (eventType === 'rename') {
+                    if (!fs.existsSync(stateFile)) {
+                        log('[StateSyncService] File was deleted, will recreate on next access');
+                        return;
+                    }
+                    log('[StateSyncService] File was renamed/replaced (atomic write detected)');
                 }
                 
                 // Clear existing debounce timer
@@ -163,31 +188,30 @@ export class StateSyncService {
                     
                     // Verify file still exists
                     if (!fs.existsSync(stateFile)) {
+                        log('[StateSyncService] File no longer exists, skipping processing');
                         return;
                     }
                     
-                    // Only ignore if we're currently writing (prevents feedback loop)
-                    if (!this.isWriting) {
-                        log('[StateSyncService] Processing external change');
-                        this.handleExternalChange();
-                    } else {
-                        log('[StateSyncService] Ignoring change - currently writing');
-                    }
+                    // Process all external changes - version checking handles deduplication
+                    // This fixes the race condition where MCP writes during our write window were ignored
+                    console.log('[StateSyncService] Processing external change');
+                    log('[StateSyncService] Processing external change');
+                    this.handleExternalChange();
                 }, this.DEBOUNCE_MS);
             });
 
-            // Handle watcher errors (e.g., file deleted while watching)
+            // Handle watcher errors (e.g., directory deleted while watching)
             this.fileWatcher.on('error', (err) => {
                 const error = new FileSystemError(
-                    'File watcher error occurred',
-                    stateFile,
+                    'Directory watcher error occurred',
+                    stateDir,
                     'watch',
-                    { operation: 'file watching' },
+                    { operation: 'directory watching', file: stateFileName },
                     err instanceof Error ? err : undefined
                 );
                 
                 handleError(error, {
-                    operation: 'file watcher',
+                    operation: 'directory watcher',
                     component: 'StateSyncService',
                     metadata: { willRetry: true }
                 });
@@ -198,22 +222,23 @@ export class StateSyncService {
                     this.fileWatcher = undefined;
                 }
                 
-                // Retry after a short delay (file might be recreated)
+                // Retry after a short delay (directory might be recreated)
                 setTimeout(() => {
                     if (!this.fileWatcher) {
-                        log('[StateSyncService] Retrying to start file watcher...');
+                        log('[StateSyncService] Retrying to start directory watcher...');
                         this.startWatching();
                     }
                 }, 1000);
             });
 
-            log('[StateSyncService] ✓ Started watching state file with Node.js fs.watch()');
+            console.log('[StateSyncService] ✓ Started watching state directory (handles atomic writes)');
+            log('[StateSyncService] ✓ Started watching state directory (handles atomic writes)');
         } catch (err) {
             const error = new FileSystemError(
-                `Failed to start file watcher for: ${stateFile}`,
-                stateFile,
+                `Failed to start directory watcher for: ${stateDir}`,
+                stateDir,
                 'watch',
-                { operation: 'startWatching' },
+                { operation: 'startWatching', file: stateFileName },
                 err instanceof Error ? err : undefined
             );
             handleError(error, {
@@ -239,6 +264,7 @@ export class StateSyncService {
      * Simplified: just read and fire event, let GraphService handle merging
      */
     private handleExternalChange(): void {
+        const startTime = Date.now();
         log(`[StateSyncService] Reading external change`);
         
         const correlationId = generateCorrelationId();
@@ -255,16 +281,29 @@ export class StateSyncService {
         
         const state = result.value;
 
+        log(`[StateSyncService] State version: ${state.version}`);
+        log(`[StateSyncService] Last known version: ${this.lastKnownVersion}`);
+
         // Simple version check - only process if newer
         if (state.version <= this.lastKnownVersion) {
+            log(`[StateSyncService] Skipping state version ${state.version} (not newer than ${this.lastKnownVersion})`);
             return;
         }
 
-        log(`[StateSyncService] New state version: ${state.version} (from ${state.source})`, () => ({
+        // Check if this is our own write reflected back (for debugging)
+        if (state.version === this.lastWrittenVersion && state.source === 'vscode-extension') {
+            log(`[StateSyncService] Detected our own write reflected back (version ${state.version}), processing anyway for safety`);
+            // We still process it to ensure consistency, but log it for debugging
+        }
+
+        const elapsedMs = Date.now() - startTime;
+        log(`[StateSyncService] New state version: ${state.version} (from ${state.source}) [${elapsedMs}ms]`, () => ({
             correlationId,
             oldVersion: this.lastKnownVersion,
             newVersion: state.version,
-            source: state.source
+            source: state.source,
+            isOwnWrite: state.version === this.lastWrittenVersion,
+            elapsedMs
         }));
         
         this.lastKnownVersion = state.version;
@@ -277,7 +316,7 @@ export class StateSyncService {
      * Read the current state from file (with Result type)
      */
     public readStateResult(): Result<SharedGraphState, FileSystemError | ParsingError | GraphStateError> {
-        const stateFile = getSharedStateFile();
+        const stateFile = getSharedStateFile(this.workspacePath);
         const correlationId = generateCorrelationId();
         
         log(`[StateSyncService] Reading state from: ${stateFile}`, () => ({ correlationId }));
@@ -377,10 +416,6 @@ export class StateSyncService {
                 }
             }
             
-            // Update last known version
-            if (state.version > this.lastKnownVersion) {
-                this.lastKnownVersion = state.version;
-            }
             
             return Ok(state as SharedGraphState);
         } catch (err) {
@@ -417,7 +452,7 @@ export class StateSyncService {
             }
             
             // Read the restored file
-            const stateFile = getSharedStateFile();
+            const stateFile = getSharedStateFile(this.workspacePath);
             if (!fs.existsSync(stateFile)) {
                 logError(`[StateSyncService] Backup restoration failed - file still doesn't exist`, undefined, () => ({ correlationId }));
                 return null;
@@ -531,7 +566,7 @@ export class StateSyncService {
      * Now includes file locking and backup before write
      */
     private async writeStateInternal(state: SharedGraphState): Promise<void> {
-        const stateFile = getSharedStateFile();
+        const stateFile = getSharedStateFile(this.workspacePath);
         const correlationId = generateCorrelationId();
         let releaseLock: (() => Promise<void>) | null = null;
         
@@ -570,10 +605,14 @@ export class StateSyncService {
             
             // Write to temp file first, then rename (atomic operation)
             const tempFile = stateFile + '.tmp';
-            fs.writeFileSync(tempFile, JSON.stringify(state, null, 2), 'utf-8');
+            const stateJson = JSON.stringify(state, null, 2);
+            fs.writeFileSync(tempFile, stateJson, 'utf-8');
             fs.renameSync(tempFile, stateFile);
             
-            log(`[StateSyncService] ✓ State written successfully (version ${state.version})`);
+            // Track the version we just wrote (for debugging and deduplication)
+            this.lastWrittenVersion = state.version;
+            
+            log(`[StateSyncService] ✓ State written successfully (version ${state.version}, ${stateJson.length} bytes)`);
             
             // Release lock before resetting isWriting flag
             if (releaseLock) {
@@ -581,7 +620,7 @@ export class StateSyncService {
                 releaseLock = null;
             }
             
-            // Reset flag after file system settles
+            // Reset flag after file system settles (for debugging/logging only)
             setTimeout(() => {
                 this.isWriting = false;
             }, this.DEBOUNCE_MS);
@@ -623,7 +662,7 @@ export class StateSyncService {
      * Get the state file path (for debugging)
      */
     public getStateFilePath(): string {
-        return getSharedStateFile();
+        return getSharedStateFile(this.workspacePath);
     }
 
     /**

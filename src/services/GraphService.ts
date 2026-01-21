@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { GraphData, GraphNode, GraphEdge, Layer, ProposedChange, NodeHistoryEvent } from '../types';
 import { StateSyncService } from './StateSyncService';
 import { log, debug, error as logError } from '../logger';
-import { getSharedStateFile, createEmptySharedState, MCP_OWNED_PROPERTIES, SharedGraphState } from '../config/shared-state-config';
+import { getSharedStateFile, createEmptySharedState, MCP_OWNED_PROPERTIES, SharedGraphState, SCHEMA_VERSION } from '../config/shared-state-config';
 import { 
     GraphStateError, 
     ValidationError, 
@@ -45,6 +45,7 @@ export class GraphService {
     // NOTE: Currently, ONLY the 'code' layer (C4 Level 4) is auto-populated.
     // Other layers are empty and will be implemented in future updates.
     private graphs: Record<Layer, GraphData> = {
+        workflow: { nodes: [], edges: [] },
         context: { nodes: [], edges: [] },
         container: { nodes: [], edges: [] },
         component: { nodes: [], edges: [] },
@@ -56,6 +57,7 @@ export class GraphService {
 
     // Proposed changes storage (per-layer) - in-memory until applied
     private proposedChangesByLayer: Record<Layer, Map<string, ProposedChange>> = {
+        workflow: new Map(),
         context: new Map(),
         container: new Map(),
         component: new Map(),
@@ -64,6 +66,7 @@ export class GraphService {
 
     // Node history tracking (per-layer)
     private nodeHistoryByLayer: Record<Layer, Map<string, NodeHistoryEvent[]>> = {
+        workflow: new Map(),
         context: new Map(),
         container: new Map(),
         component: new Map(),
@@ -72,6 +75,7 @@ export class GraphService {
 
     // Deleted node tracking (per-layer)
     private deletedNodeIds: Record<Layer, Set<string>> = {
+        workflow: new Set(),
         context: new Set(),
         container: new Set(),
         component: new Set(),
@@ -119,6 +123,7 @@ export class GraphService {
         } else {
             // Clear all layers
             this.graphs = {
+                workflow: { nodes: [], edges: [] },
                 context: { nodes: [], edges: [] },
                 container: { nodes: [], edges: [] },
                 component: { nodes: [], edges: [] },
@@ -218,7 +223,7 @@ export class GraphService {
             }
 
             // Migrate proposed changes
-            const layers: Layer[] = ['context', 'container', 'component', 'code'];
+            const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
             for (const layer of layers) {
                 const key = `proposedChanges-${layer}`;
                 const stored = this.context.globalState.get<Record<string, ProposedChange>>(key);
@@ -235,6 +240,7 @@ export class GraphService {
             // Migrate node history
             if (!sharedState.nodeHistory) {
                 sharedState.nodeHistory = {
+                    workflow: {},
                     context: {},
                     container: {},
                     component: {},
@@ -254,6 +260,7 @@ export class GraphService {
             // Migrate deleted nodes
             if (!sharedState.deletedNodes) {
                 sharedState.deletedNodes = {
+                    workflow: [],
                     context: [],
                     container: [],
                     component: [],
@@ -307,7 +314,7 @@ export class GraphService {
     private async clearGlobalStateData(): Promise<void> {
         log('[GraphService] Clearing old globalState data...');
         try {
-            const layers: Layer[] = ['context', 'container', 'component', 'code'];
+            const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
             
             // Clear graph data
             await this.context.globalState.update('graphData', undefined);
@@ -600,7 +607,7 @@ export class GraphService {
         const correlationId = generateCorrelationId();
         log('[GraphService] Starting state reconciliation with file system...', () => ({ correlationId }));
         
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         let totalOrphanedNodes = 0;
         let totalOrphanedEdges = 0;
         
@@ -703,7 +710,7 @@ export class GraphService {
             this.currentLayer = sharedState.currentLayer;
 
             // Load proposed changes
-            const layers: Layer[] = ['context', 'container', 'component', 'code'];
+            const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
             for (const layer of layers) {
                 this.proposedChangesByLayer[layer].clear();
                 for (const change of sharedState.proposedChanges[layer]) {
@@ -798,7 +805,7 @@ export class GraphService {
      * Get current state as a snapshot for merge operations
      */
     private getCurrentStateSnapshot(): SharedGraphState {
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         const proposedChangesArray: any = {};
         const nodeHistoryObject: any = {};
         const deletedNodesArray: any = {};
@@ -816,7 +823,7 @@ export class GraphService {
         }
 
         return {
-            schemaVersion: 1,
+            schemaVersion: SCHEMA_VERSION,
             version: 0, // Will be set during merge
             timestamp: Date.now(),
             source: 'vscode-extension',
@@ -833,7 +840,7 @@ export class GraphService {
      * Apply merged state after conflict resolution
      */
     private applyMergedState(mergedState: SharedGraphState): void {
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         
         // Apply graphs
         for (const layer of layers) {
@@ -891,15 +898,24 @@ export class GraphService {
     }
 
     /**
-     * Merge external changes from MCP server (property-only updates)
+     * Merge external changes from MCP server (property-only updates + structural changes)
      * Only merges MCP-owned properties, preserves extension-owned properties
      */
     private mergeExternalChanges(external: any): void {
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const startTime = Date.now();
+        log(`[GraphService] Processing external changes from ${external.source} (version ${external.version})`);
+        
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         const nodeUpdatesMap = new Map<Layer, Map<string, Partial<GraphNode['data']>>>();
+        const structuralChanges = new Map<Layer, { addedNodes: GraphNode[], addedEdges: GraphEdge[] }>();
         
         for (const layer of layers) {
             const nodeUpdates = new Map<string, Partial<GraphNode['data']>>();
+            const addedNodes: GraphNode[] = [];
+            const addedEdges: GraphEdge[] = [];
+            
+            const beforeNodeCount = this.graphs[layer].nodes.length;
+            const beforeEdgeCount = this.graphs[layer].edges.length;
             
             if (external.graphs && external.graphs[layer]) {
                 // Process node updates
@@ -916,6 +932,7 @@ export class GraphService {
                     } else if (externalNode.data.isAgentAdded) {
                         // New agent-added node - accept it
                         this.graphs[layer].nodes.push(externalNode);
+                        addedNodes.push(externalNode);
                     }
                 }
                 
@@ -925,12 +942,34 @@ export class GraphService {
                     if (!existing) {
                         // New edge (likely from agent) - add it
                         this.graphs[layer].edges.push(externalEdge);
+                        addedEdges.push(externalEdge);
                     }
+                }
+            }
+            
+            // Log changes for this layer
+            if (addedNodes.length > 0 || addedEdges.length > 0 || nodeUpdates.size > 0) {
+                const afterNodeCount = this.graphs[layer].nodes.length;
+                const afterEdgeCount = this.graphs[layer].edges.length;
+                log(`[GraphService] Layer ${layer}: ${beforeNodeCount}→${afterNodeCount} nodes, ${beforeEdgeCount}→${afterEdgeCount} edges`);
+                
+                if (addedNodes.length > 0) {
+                    const nodeIds = addedNodes.map(n => n.data.id).slice(0, 5);
+                    const remaining = addedNodes.length - nodeIds.length;
+                    log(`[GraphService]   Added nodes: ${nodeIds.join(', ')}${remaining > 0 ? ` (+${remaining} more)` : ''}`);
+                }
+                
+                if (nodeUpdates.size > 0) {
+                    debug(`[GraphService]   Updated ${nodeUpdates.size} node properties`);
                 }
             }
             
             if (nodeUpdates.size > 0) {
                 nodeUpdatesMap.set(layer, nodeUpdates);
+            }
+            
+            if (addedNodes.length > 0 || addedEdges.length > 0) {
+                structuralChanges.set(layer, { addedNodes, addedEdges });
             }
         }
 
@@ -950,7 +989,23 @@ export class GraphService {
             }
         }
         
-        debug(`[GraphService] Merged MCP properties for ${nodeUpdatesMap.size} layer(s)`);
+        // Fire incremental structural change events for new nodes/edges
+        for (const [layer, changes] of structuralChanges) {
+            if (changes.addedNodes.length > 0 || changes.addedEdges.length > 0) {
+                log(`[GraphService] Firing onGraphChangedIncremental for ${layer}: +${changes.addedNodes.length} nodes, +${changes.addedEdges.length} edges`);
+                this.onGraphChangedIncrementalEmitter.fire({
+                    layer,
+                    addedNodes: changes.addedNodes,
+                    addedEdges: changes.addedEdges,
+                    removedNodeIds: [],
+                    removedEdgeIds: [],
+                    fullGraph: this.graphs[layer]
+                });
+            }
+        }
+        
+        const elapsedMs = Date.now() - startTime;
+        log(`[GraphService] ✓ Merged external changes in ${elapsedMs}ms (${nodeUpdatesMap.size} layer(s) with property updates, ${structuralChanges.size} layer(s) with structural changes)`);
     }
 
     /**
@@ -973,7 +1028,7 @@ export class GraphService {
      * This is the fallback for non-MCP sources
      */
     private applyFullGraphUpdate(sharedState: any): void {
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         
         // Deep copy to ensure proper data structure
         for (const layer of layers) {
@@ -1027,11 +1082,37 @@ export class GraphService {
 
     /**
      * Sync current state to shared file (for MCP server to read)
+     * Preserves agent-added nodes from the file to avoid overwriting MCP server's data
      */
     private syncToSharedState(): void {
         try {
+            // Read current file state to preserve agent-added nodes
+            const fileState = this.stateSyncService.readState();
+            const mergedGraphs: Record<Layer, GraphData> = { ...this.graphs };
+            
+            if (fileState && fileState.graphs) {
+                const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
+                for (const layer of layers) {
+                    // Get agent-added nodes from file that we don't have in memory
+                    const fileNodes = fileState.graphs[layer]?.nodes || [];
+                    const fileAgentNodes = fileNodes.filter((n: any) => n.data.isAgentAdded === true);
+                    const memoryNodeIds = new Set(this.graphs[layer].nodes.map(n => n.data.id));
+                    const missingAgentNodes = fileAgentNodes.filter((n: any) => !memoryNodeIds.has(n.data.id));
+                    
+                    if (missingAgentNodes.length > 0) {
+                        log(`[GraphService] Preserving ${missingAgentNodes.length} agent-added nodes from file for ${layer} layer`);
+                        mergedGraphs[layer] = {
+                            nodes: [...this.graphs[layer].nodes, ...missingAgentNodes],
+                            edges: this.graphs[layer].edges
+                        };
+                        // Also update in-memory graph to stay in sync
+                        this.graphs[layer] = mergedGraphs[layer];
+                    }
+                }
+            }
+            
             // Convert proposed changes from Map to Array
-            const layers: Layer[] = ['context', 'container', 'component', 'code'];
+            const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
             const proposedChangesArray: any = {};
             const nodeHistoryObject: any = {};
             const deletedNodesArray: any = {};
@@ -1050,10 +1131,10 @@ export class GraphService {
                 deletedNodesArray[layer] = Array.from(this.deletedNodeIds[layer]);
             }
 
-            // Write to shared state
+            // Write to shared state with merged graphs
             this.stateSyncService.writeState({
                 currentLayer: this.currentLayer,
-                graphs: this.graphs,
+                graphs: mergedGraphs,
                 proposedChanges: proposedChangesArray,
                 nodeHistory: nodeHistoryObject,
                 deletedNodes: deletedNodesArray
@@ -1084,6 +1165,7 @@ export class GraphService {
         
         // Clear in-memory graphs
         this.graphs = {
+            workflow: { nodes: [], edges: [] },
             context: { nodes: [], edges: [] },
             container: { nodes: [], edges: [] },
             component: { nodes: [], edges: [] },
@@ -1091,7 +1173,7 @@ export class GraphService {
         };
         
         // Clear proposed changes, node history, and deleted nodes
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         for (const layer of layers) {
             this.proposedChangesByLayer[layer].clear();
             this.nodeHistoryByLayer[layer].clear();

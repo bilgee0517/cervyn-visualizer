@@ -58,6 +58,7 @@ export class StatePruningService {
             historyEventsPruned: 0,
             deletedNodesPruned: 0,
             layerStats: {
+                workflow: { historyEventsPruned: 0, deletedNodesPruned: 0 },
                 context: { historyEventsPruned: 0, deletedNodesPruned: 0 },
                 container: { historyEventsPruned: 0, deletedNodesPruned: 0 },
                 component: { historyEventsPruned: 0, deletedNodesPruned: 0 },
@@ -93,6 +94,7 @@ export class StatePruningService {
     ): SharedGraphState['nodeHistory'] {
         if (!nodeHistory) {
             return {
+                workflow: {},
                 context: {},
                 container: {},
                 component: {},
@@ -100,7 +102,7 @@ export class StatePruningService {
             };
         }
         
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         const prunedHistory: any = {};
         const now = Date.now();
         
@@ -167,6 +169,7 @@ export class StatePruningService {
     ): SharedGraphState['deletedNodes'] {
         if (!deletedNodes) {
             return {
+                workflow: [],
                 context: [],
                 container: [],
                 component: [],
@@ -174,7 +177,7 @@ export class StatePruningService {
             };
         }
         
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         const prunedDeleted: any = {};
         
         for (const layer of layers) {
@@ -209,13 +212,14 @@ export class StatePruningService {
      * Get current data size statistics for a state
      */
     public getStateStats(state: SharedGraphState): StateStats {
-        const layers: Layer[] = ['context', 'container', 'component', 'code'];
+        const layers: Layer[] = ['workflow', 'context', 'container', 'component', 'code'];
         const stats: StateStats = {
             totalNodes: 0,
             totalEdges: 0,
             totalHistoryEvents: 0,
             totalDeletedNodes: 0,
             layerBreakdown: {
+                workflow: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
                 context: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
                 container: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
                 component: { nodes: 0, edges: 0, historyEvents: 0, deletedNodes: 0 },
