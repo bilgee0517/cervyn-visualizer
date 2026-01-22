@@ -39,7 +39,7 @@ export interface GraphNode {
     data: {
         id: string;
         label: string;
-        type?: 'file' | 'directory' | 'module' | 'class' | 'function';
+        type?: string; // Flexible type to support all layer node types (validated via schema)
         path?: string;
         category?: string;
         isEntryPoint?: boolean;
@@ -67,6 +67,10 @@ export interface GraphNode {
         // Feature annotation properties (cross-layer tracing)
         supportsFeatures?: string[]; // Feature IDs this node supports (all layers except workflow)
         supportedBy?: string[];      // Node IDs implementing this feature (workflow layer only)
+        // Component layer specific fields
+        responsibility?: string;     // REQUIRED for component layer: 1 sentence describing what responsibility it owns
+        ownedData?: string[];        // Optional: what state/data this component owns
+        publicSurface?: string[];    // Optional: routes/events exposed by this component
     };
 }
 

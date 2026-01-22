@@ -5,8 +5,7 @@
 
 import { logMessage, updateZoomDisplay } from '../shared/utils';
 import { StateManager } from '../shared/state-manager';
-import { COLORS, generateColorVariations } from '../../config/colors';
-import { StyleManager, StyleLayer } from './style-manager';
+import { StyleManager } from './style-manager';
 
 export class UIController {
     private vscode: any;
@@ -22,6 +21,7 @@ export class UIController {
     private minimapCtx: CanvasRenderingContext2D | null = null;
     private searchResults: any[] = [];
     private selectedResultIndex: number = -1;
+    private showLegend: boolean = false;
     
     constructor(vscode: any, stateManager: StateManager) {
         this.vscode = vscode;
@@ -91,9 +91,9 @@ export class UIController {
         this.initOnboardingControls();
         this.initDropdownMenu();
         this.initHelpButton();
-        this.initColorPickers();
         this.initRefreshButton();
         this.initMinimap();
+        this.initLegendToggle();
     }
     
     /**
@@ -122,6 +122,27 @@ export class UIController {
             moreOptionsBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.toggleDropdown();
+            });
+        }
+    }
+    
+    /**
+     * Initialize legend toggle button
+     */
+    private initLegendToggle(): void {
+        const toggleLegendBtn = document.getElementById('toggleLegendBtn');
+        const legendClose = document.getElementById('legendClose');
+        
+        if (toggleLegendBtn) {
+            toggleLegendBtn.addEventListener('click', () => {
+                this.closeDropdown();
+                this.toggleLegend();
+            });
+        }
+        
+        if (legendClose) {
+            legendClose.addEventListener('click', () => {
+                this.hideLegend();
             });
         }
     }
@@ -179,137 +200,6 @@ export class UIController {
         };
         
         tryInit();
-    }
-    
-    /**
-     * Initialize color pickers for theme customization
-     */
-    private initColorPickers(): void {
-        const nodeColorPicker = document.getElementById('nodeColorPicker') as HTMLInputElement;
-        const edgeColorPicker = document.getElementById('edgeColorPicker') as HTMLInputElement;
-        const resetColorsBtn = document.getElementById('resetColorsBtn');
-        
-        if (nodeColorPicker) {
-            nodeColorPicker.addEventListener('change', (e) => {
-                const color = (e.target as HTMLInputElement).value;
-                this.updateNodeColors(color);
-                logMessage(this.vscode, `Node color changed to: ${color}`);
-            });
-        }
-        
-        if (edgeColorPicker) {
-            edgeColorPicker.addEventListener('change', (e) => {
-                const color = (e.target as HTMLInputElement).value;
-                this.updateEdgeColors(color);
-                logMessage(this.vscode, `Edge color changed to: ${color}`);
-            });
-        }
-        
-        if (resetColorsBtn) {
-            resetColorsBtn.addEventListener('click', () => {
-                this.resetColors();
-                if (nodeColorPicker) nodeColorPicker.value = COLORS.primary;
-                if (edgeColorPicker) edgeColorPicker.value = COLORS.edges.default;
-                logMessage(this.vscode, 'Colors reset to default');
-            });
-        }
-    }
-    
-    /**
-     * Update node colors based on user selection
-     */
-    private updateNodeColors(baseColor: string): void {
-        const cy = this.stateManager.getCy();
-        if (!cy) return;
-        
-        // Generate color variations from base color
-        const variations = this.generateColorVariations(baseColor);
-        
-        // Update all nodes
-        cy.nodes().forEach((node: any) => {
-            const type = node.data('type');
-            if (type === 'directory') {
-                node.style('background-color', variations.lightest);
-                node.style('border-color', variations.light);
-            } else if (type === 'file') {
-                node.style('background-color', variations.veryLight);
-                node.style('border-color', variations.light);
-            } else if (type === 'class') {
-                node.style('background-color', variations.light);
-                node.style('border-color', variations.medium);
-            } else if (type === 'function') {
-                node.style('background-color', variations.light);
-                node.style('border-color', baseColor);
-            } else {
-                node.style('background-color', baseColor);
-                node.style('border-color', variations.dark);
-            }
-        });
-    }
-    
-    /**
-     * Update edge colors based on user selection
-     * Uses StyleManager for centralized style management
-     * NOTE: This is a placeholder - user color customization for edges would require
-     * CSS custom properties or a different approach since edges don't support inline color styles
-     * For now, we skip selected edges to preserve their styling
-     */
-    private updateEdgeColors(baseColor: string): void {
-        const cy = this.stateManager.getCy();
-        if (!cy) return;
-        
-        // If StyleManager is available, we should use it, but edge color customization
-        // via user layer would require CSS custom properties support
-        // For now, we preserve selected edges and only update non-selected edges
-        cy.edges().forEach((edge: any) => {
-            // Skip selected edges - they should maintain their orange color
-            if (edge.hasClass('selected')) {
-                return;
-            }
-            
-            // Apply inline style only for non-selected edges
-            // TODO: This should be refactored to use StyleManager with CSS custom properties
-            edge.style('line-color', baseColor);
-            edge.style('target-arrow-color', baseColor);
-        });
-    }
-    
-    /**
-     * Reset colors to default theme
-     * Uses StyleManager to clear user layer and remove inline styles
-     */
-    private resetColors(): void {
-        const cy = this.stateManager.getCy();
-        if (!cy) return;
-        
-        // Clear user layer if StyleManager is available
-        if (this.styleManager) {
-            this.styleManager.clearLayer(StyleLayer.USER);
-        }
-        
-        // Force re-apply default styles by removing inline styles
-        cy.nodes().forEach((node: any) => {
-            node.removeStyle('background-color');
-            node.removeStyle('border-color');
-        });
-        
-        // Remove inline styles from edges, but preserve selected edges
-        cy.edges().forEach((edge: any) => {
-            // Only remove inline styles if edge is not selected
-            // Selected edges should maintain their CSS-defined styling
-            if (!edge.hasClass('selected')) {
-                edge.removeStyle('line-color');
-                edge.removeStyle('target-arrow-color');
-            }
-        });
-    }
-    
-    /**
-     * Generate color variations from a base color
-     * Uses centralized color utility
-     */
-    private generateColorVariations(hexColor: string): any {
-        return generateColorVariations(hexColor);
     }
     
     /**
@@ -855,6 +745,13 @@ export class UIController {
             // Update state manager with current layer
             this.stateManager.setCurrentLayer(selectedLayer);
             
+            // Update legend if visible
+            logMessage(this.vscode, `[UIController] Legend visible: ${this.showLegend}`);
+            if (this.showLegend) {
+                logMessage(this.vscode, `[UIController] Updating legend for layer: ${selectedLayer}`);
+                this.renderLegend();
+            }
+            
             // Post message to extension to change layer
             this.vscode.postMessage({
                 type: 'changeLayer',
@@ -872,13 +769,267 @@ export class UIController {
     public updateLayerSelector(layer: string): void {
         const layerSelect = document.getElementById('layerSelect') as HTMLSelectElement;
         
+        logMessage(this.vscode, `[UIController] updateLayerSelector called with layer: ${layer}, current value: ${layerSelect?.value}, showLegend: ${this.showLegend}`);
+        
         if (layerSelect && layerSelect.value !== layer) {
             layerSelect.value = layer;
             logMessage(this.vscode, `[UIController] Layer selector updated to: ${layer}`);
             
             // Also update state manager
             this.stateManager.setCurrentLayer(layer);
+            
+            // Update legend if visible (check again after state update)
+            if (this.showLegend) {
+                logMessage(this.vscode, `[UIController] Updating legend for external layer change: ${layer}`);
+                this.renderLegend();
+            }
+        } else if (layerSelect && layerSelect.value === layer) {
+            // Layer is already set, but still update state and legend if needed
+            this.stateManager.setCurrentLayer(layer);
+            if (this.showLegend) {
+                logMessage(this.vscode, `[UIController] Layer already set, but updating legend: ${layer}`);
+                this.renderLegend();
+            }
         }
+    }
+    
+    /**
+     * Toggle legend visibility
+     */
+    private toggleLegend(): void {
+        if (this.showLegend) {
+            this.hideLegend();
+        } else {
+            this.showLegendPanel();
+        }
+    }
+    
+    /**
+     * Show legend panel
+     */
+    private showLegendPanel(): void {
+        const legendPanel = document.getElementById('legendPanel');
+        if (!legendPanel) {
+            logMessage(this.vscode, '[UIController] ERROR: Legend panel element not found');
+            return;
+        }
+        
+        this.showLegend = true;
+        legendPanel.style.display = 'flex';
+        this.renderLegend();
+        logMessage(this.vscode, '[UIController] Legend panel shown');
+    }
+    
+    /**
+     * Hide legend panel
+     */
+    private hideLegend(): void {
+        const legendPanel = document.getElementById('legendPanel');
+        if (!legendPanel) return;
+        
+        this.showLegend = false;
+        legendPanel.style.display = 'none';
+        logMessage(this.vscode, 'Legend panel hidden');
+    }
+    
+    /**
+     * Render legend content based on current layer
+     */
+    private renderLegend(): void {
+        const legendContent = document.getElementById('legendContent');
+        if (!legendContent) {
+            logMessage(this.vscode, '[UIController] ERROR: Legend content element not found');
+            return;
+        }
+        
+        const currentLayer = this.stateManager.getCurrentLayer() || 'code';
+        logMessage(this.vscode, `[UIController] Rendering legend for layer: ${currentLayer} (showLegend=${this.showLegend})`);
+        
+        // Import colors for legend samples
+        const COLORS = {
+            nodes: {
+                file: '#10B981',
+                directory: '#F1F5F9',
+                class: '#8B5CF6',
+                function: '#64748B',
+                feature: '#3B82F6',
+                featureGroup: '#6366F1',
+                userJourney: '#8B5CF6',
+                actor: '#14B8A6',
+                externalSystem: '#64748B',
+                externalApi: '#06B6D4',
+                externalDatastore: '#FACC15',
+                externalService: '#F97316',
+                service: '#22C55E',
+                webApp: '#3B82F6',
+                mobileApp: '#EC4899',
+                apiGateway: '#6366F1',
+                messageBroker: '#8B5CF6',
+                datastore: '#FACC15',
+                cache: '#EF4444',
+                objectStore: '#64748B',
+                module: '#8B5CF6',
+                package: '#A855F7',
+                component: '#6366F1',
+                library: '#3B82F6',
+                namespace: '#06B6D4',
+                plugin: '#EC4899',
+            },
+            edges: {
+                default: '#94A3B8',
+                imports: '#3B82F6',
+                calls: '#10B981',
+                dependsOn: '#EF4444',
+                extends: '#8B5CF6',
+                implements: '#8B5CF6',
+                dependsOnFeature: '#F43F5E',
+                partOf: '#8B5CF6',
+                primaryFlow: '#10B981',
+                alternateFlow: '#F59E0B',
+                triggers: '#06B6D4',
+                uses: '#14B8A6',
+                integratesWith: '#F43F5E',
+                authenticatesWith: '#F97316',
+                readsFrom: '#3B82F6',
+                writesTo: '#6366F1',
+                sendsEventTo: '#8B5CF6',
+                receivesEventFrom: '#A855F7',
+                httpRequest: '#3B82F6',
+                rpcCall: '#06B6D4',
+                dbQuery: '#FACC15',
+                cacheRead: '#F87171',
+                cacheWrite: '#EF4444',
+                publishEvent: '#8B5CF6',
+                consumeEvent: '#A78BFA',
+                enqueueJob: '#F97316',
+            }
+        };
+        
+        let html = '';
+        
+        // Node types by layer
+        const nodeTypesByLayer: Record<string, Array<{type: string, label: string, color: string, shape?: string, borderStyle?: string}>> = {
+            code: [
+                { type: 'directory', label: 'Directory', color: COLORS.nodes.directory, borderStyle: 'dashed' },
+                { type: 'file', label: 'File', color: COLORS.nodes.file },
+                { type: 'class', label: 'Class', color: COLORS.nodes.class },
+                { type: 'function', label: 'Function', color: COLORS.nodes.function },
+            ],
+            workflow: [
+                { type: 'feature', label: 'Feature', color: COLORS.nodes.feature },
+                { type: 'feature-group', label: 'Feature Group', color: COLORS.nodes.featureGroup },
+                { type: 'user-journey', label: 'User Journey', color: COLORS.nodes.userJourney },
+            ],
+            context: [
+                { type: 'actor', label: 'Actor', color: COLORS.nodes.actor, shape: 'ellipse' },
+                { type: 'external-system', label: 'External System', color: COLORS.nodes.externalSystem },
+                { type: 'external-api', label: 'External API', color: COLORS.nodes.externalApi },
+                { type: 'external-datastore', label: 'External Datastore', color: COLORS.nodes.externalDatastore },
+                { type: 'external-service', label: 'External Service', color: COLORS.nodes.externalService },
+            ],
+            container: [
+                { type: 'service', label: 'Service', color: COLORS.nodes.service },
+                { type: 'web-app', label: 'Web App', color: COLORS.nodes.webApp },
+                { type: 'mobile-app', label: 'Mobile App', color: COLORS.nodes.mobileApp },
+                { type: 'api-gateway', label: 'API Gateway', color: COLORS.nodes.apiGateway },
+                { type: 'message-broker', label: 'Message Broker', color: COLORS.nodes.messageBroker },
+                { type: 'datastore', label: 'Datastore', color: COLORS.nodes.datastore },
+                { type: 'cache', label: 'Cache', color: COLORS.nodes.cache },
+                { type: 'object-store', label: 'Object Store', color: COLORS.nodes.objectStore },
+            ],
+            component: [
+                { type: 'module', label: 'Module', color: COLORS.nodes.module },
+                { type: 'package', label: 'Package', color: COLORS.nodes.package },
+                { type: 'component', label: 'Component', color: COLORS.nodes.component },
+                { type: 'library', label: 'Library', color: COLORS.nodes.library },
+                { type: 'namespace', label: 'Namespace', color: COLORS.nodes.namespace },
+                { type: 'plugin', label: 'Plugin', color: COLORS.nodes.plugin },
+            ],
+        };
+        
+        // Edge types by category
+        const edgeTypesByCategory: Record<string, Array<{type: string, label: string, color: string, style: string}>> = {
+            code: [
+                { type: 'imports', label: 'Imports', color: COLORS.edges.imports, style: 'solid' },
+                { type: 'calls', label: 'Calls', color: COLORS.edges.calls, style: 'dotted' },
+                { type: 'depends-on', label: 'Depends On', color: COLORS.edges.dependsOn, style: 'dashed' },
+                { type: 'extends', label: 'Extends', color: COLORS.edges.extends, style: 'solid' },
+                { type: 'implements', label: 'Implements', color: COLORS.edges.implements, style: 'solid' },
+            ],
+            workflow: [
+                { type: 'depends-on-feature', label: 'Depends On Feature', color: COLORS.edges.dependsOnFeature, style: 'dashed' },
+                { type: 'part-of', label: 'Part Of', color: COLORS.edges.partOf, style: 'solid' },
+                { type: 'primary-flow', label: 'Primary Flow', color: COLORS.edges.primaryFlow, style: 'solid' },
+                { type: 'alternate-flow', label: 'Alternate Flow', color: COLORS.edges.alternateFlow, style: 'dashed' },
+                { type: 'triggers', label: 'Triggers', color: COLORS.edges.triggers, style: 'solid' },
+            ],
+            context: [
+                { type: 'uses', label: 'Uses', color: COLORS.edges.uses, style: 'solid' },
+                { type: 'integrates-with', label: 'Integrates With', color: COLORS.edges.integratesWith, style: 'solid' },
+                { type: 'authenticates-with', label: 'Authenticates With', color: COLORS.edges.authenticatesWith, style: 'solid' },
+                { type: 'reads-from', label: 'Reads From', color: COLORS.edges.readsFrom, style: 'solid' },
+                { type: 'writes-to', label: 'Writes To', color: COLORS.edges.writesTo, style: 'solid' },
+                { type: 'sends-event-to', label: 'Sends Event To', color: COLORS.edges.sendsEventTo, style: 'solid' },
+                { type: 'receives-event-from', label: 'Receives Event From', color: COLORS.edges.receivesEventFrom, style: 'solid' },
+            ],
+            container: [
+                { type: 'http-request', label: 'HTTP Request', color: COLORS.edges.httpRequest, style: 'solid' },
+                { type: 'rpc-call', label: 'RPC Call', color: COLORS.edges.rpcCall, style: 'solid' },
+                { type: 'db-query', label: 'DB Query', color: COLORS.edges.dbQuery, style: 'solid' },
+                { type: 'cache-read', label: 'Cache Read', color: COLORS.edges.cacheRead, style: 'solid' },
+                { type: 'cache-write', label: 'Cache Write', color: COLORS.edges.cacheWrite, style: 'solid' },
+                { type: 'publish-event', label: 'Publish Event', color: COLORS.edges.publishEvent, style: 'solid' },
+                { type: 'consume-event', label: 'Consume Event', color: COLORS.edges.consumeEvent, style: 'solid' },
+                { type: 'enqueue-job', label: 'Enqueue Job', color: COLORS.edges.enqueueJob, style: 'solid' },
+            ],
+        };
+        
+        // Show nodes for current layer only
+        html += '<div class="legend-section">';
+        html += '<div class="legend-section-title">Node Types</div>';
+        html += '<div class="legend-items">';
+        
+        const nodeTypes = nodeTypesByLayer[currentLayer] || [];
+        nodeTypes.forEach(node => {
+            const shape = node.shape === 'ellipse' ? 'border-radius: 50%' : '';
+            const borderStyle = node.borderStyle || 'solid';
+            html += `
+                <div class="legend-item">
+                    <div class="legend-sample">
+                        <div class="legend-node-sample" style="background-color: ${node.color}; border-color: ${node.color}; border-style: ${borderStyle}; ${shape}"></div>
+                    </div>
+                    <div class="legend-item-label">
+                        <div>${node.label}</div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div></div>';
+        
+        // Show edges for current layer only
+        html += '<div class="legend-section">';
+        html += '<div class="legend-section-title">Edge Types</div>';
+        html += '<div class="legend-items">';
+        
+        const edgeTypes = edgeTypesByCategory[currentLayer] || [];
+        edgeTypes.forEach(edge => {
+            html += `
+                <div class="legend-item">
+                    <div class="legend-sample">
+                        <div class="legend-edge-sample" data-style="${edge.style}" style="--sample-color: ${edge.color}; border-top-color: ${edge.color};"></div>
+                    </div>
+                    <div class="legend-item-label">
+                        <div>${edge.label}</div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div></div>';
+        
+        legendContent.innerHTML = html;
+        logMessage(this.vscode, `[UIController] Legend content rendered for layer: ${currentLayer} (${html.length} chars, ${nodeTypes.length} node types, ${edgeTypes.length} edge types)`);
     }
     
 }

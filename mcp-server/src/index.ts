@@ -95,7 +95,16 @@ LAYER GUIDE (5 Layers):
   - external-datastore: databases, caches, data warehouses
   - external-service: SaaS services (Auth0, Stripe, Twilio)
 • container: Applications, services, subsystems (e.g., "Auth Service", "Web App")
-• component: Modules, packages, components (e.g., "auth-module", "@company/utils")
+• component: DDD-inspired meaningful components (e.g., "User Management" bounded-context, "RegisterUser" use-case)
+  - bounded-context: Major domain boundaries (use as compound nodes containing use-cases/domain-models)
+  - use-case: Business operations within a bounded context
+  - domain-model: Core business entities
+  - repository: Data access abstractions
+  - adapter: Integration implementations (port-adapter pattern)
+  - policy: Business rules
+  - subsystem: Escape hatch for large chunks (compound nodes)
+  - shared-kernel: Shared domain models across contexts
+  - REQUIRED: All component nodes must have "responsibility" field (1 sentence)
 • code: Files, classes, functions (auto-populated, but AI can add concepts)
 
 DESCRIPTION GUIDELINES:
@@ -103,7 +112,7 @@ DESCRIPTION GUIDELINES:
   - workflow nodes: "Allows users to authenticate using email/password. Handles login, session creation, and token generation."
   - context nodes: "Third-party payment processing service. Handles credit card transactions, subscriptions, and webhooks."
   - container nodes: "Backend REST API service that handles user authentication, authorization, and session management. Built with Express.js."
-  - component nodes: "Shared validation library used across services. Provides schema validation, input sanitization, and error formatting."
+  - component nodes: "Manages user authentication and session lifecycle. Handles user registration, login, and session management." (also requires "responsibility" field)
 • technology: Specify the tech stack (e.g., "Express.js + TypeScript", "React 18", "PostgreSQL 15")
 
 FEATURE ANNOTATIONS:
@@ -142,6 +151,20 @@ Use layer parameter to target specific abstraction level. Defaults to current la
         parent: {
           type: 'string',
           description: 'Parent node ID for compound nodes (optional)',
+        },
+        responsibility: {
+          type: 'string',
+          description: 'REQUIRED for component layer: 1 sentence describing what responsibility this component owns. Example: "Manages user authentication and session lifecycle"',
+        },
+        ownedData: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional (component layer): Array of state/data this component owns',
+        },
+        publicSurface: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional (component layer): Array of routes/events exposed by this component',
         },
         supportsFeatures: {
           type: 'array',
@@ -206,7 +229,7 @@ Use edgeType to specify the relationship semantics (see edge type enum for optio
         },
         edgeType: {
           type: 'string',
-          enum: ['imports', 'calls', 'extends', 'implements', 'depends-on', 'uses', 'depends-on-feature', 'part-of', 'primary-flow', 'alternate-flow', 'triggers', 'authenticates-with', 'reads-from', 'writes-to', 'sends-event-to', 'receives-event-from', 'integrates-with', 'sends-data-to', 'receives-data-from', 'publishes-to', 'subscribes-to', 'synchronizes-with', 'http-request', 'rpc-call', 'db-query', 'cache-read', 'cache-write', 'publish-event', 'consume-event', 'enqueue-job', 'replicates-to', 'syncs-with'],
+          enum: ['imports', 'calls', 'extends', 'implements', 'depends-on', 'uses', 'depends-on-feature', 'part-of', 'primary-flow', 'alternate-flow', 'triggers', 'authenticates-with', 'reads-from', 'writes-to', 'sends-event-to', 'receives-event-from', 'integrates-with', 'sends-data-to', 'receives-data-from', 'publishes-to', 'subscribes-to', 'synchronizes-with', 'http-request', 'rpc-call', 'db-query', 'cache-read', 'cache-write', 'publish-event', 'consume-event', 'enqueue-job', 'replicates-to', 'syncs-with', 'owns', 'invokes', 'persists-via', 'implemented-by', 'integrates-via'],
           description: 'Edge type - specifies the relationship semantics (sync/async, data flow, etc.)',
         },
         label: {
@@ -307,7 +330,7 @@ Use edgeType to specify the relationship semantics (see edge type enum for optio
         },
         edgeType: {
           type: 'string',
-          enum: ['imports', 'calls', 'extends', 'implements', 'depends-on', 'uses', 'depends-on-feature', 'part-of', 'primary-flow', 'alternate-flow', 'triggers', 'authenticates-with', 'reads-from', 'writes-to', 'sends-event-to', 'receives-event-from', 'integrates-with', 'sends-data-to', 'receives-data-from', 'publishes-to', 'subscribes-to', 'synchronizes-with', 'http-request', 'rpc-call', 'db-query', 'cache-read', 'cache-write', 'publish-event', 'consume-event', 'enqueue-job', 'replicates-to', 'syncs-with'],
+          enum: ['imports', 'calls', 'extends', 'implements', 'depends-on', 'uses', 'depends-on-feature', 'part-of', 'primary-flow', 'alternate-flow', 'triggers', 'authenticates-with', 'reads-from', 'writes-to', 'sends-event-to', 'receives-event-from', 'integrates-with', 'sends-data-to', 'receives-data-from', 'publishes-to', 'subscribes-to', 'synchronizes-with', 'http-request', 'rpc-call', 'db-query', 'cache-read', 'cache-write', 'publish-event', 'consume-event', 'enqueue-job', 'replicates-to', 'syncs-with', 'owns', 'invokes', 'persists-via', 'implemented-by', 'integrates-via'],
           description: 'New edge type (optional)',
         },
         description: {

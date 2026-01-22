@@ -7,10 +7,31 @@ import { GraphStateManager, GraphNode, GraphEdge } from '../graph-state-manager.
 import { getLayerGuidance, isNodeTypeRecommended, isEdgeTypeRecommended, suggestLayerForNodeType } from '../config/layer-guidance.js';
 
 export async function addNode(graphState: GraphStateManager, args: any) {
-    const { label, type, layer, roleDescription, technology, path, parent, ...additionalProps } = args;
+    const { label, type, layer, roleDescription, technology, path, parent, responsibility, ...additionalProps } = args;
 
     const targetLayer = layer || graphState.getCurrentLayer();
     const nodeId = graphState.generateNodeId(label);
+    
+    // Component layer specific validation
+    if (targetLayer === 'component') {
+        // HARD RULE: Require responsibility field
+        if (!responsibility || typeof responsibility !== 'string' || responsibility.trim().length === 0) {
+            throw new Error(
+                `❌ Component layer nodes MUST have a 'responsibility' field (1 sentence describing what responsibility it owns).\n\n` +
+                `Example: responsibility: "Manages user authentication and session lifecycle"`
+            );
+        }
+        
+        // HARD RULE: Block code-level types (files, classes, functions)
+        const forbiddenTypes = ['file', 'directory', 'class', 'function', 'interface', 'type'];
+        if (forbiddenTypes.includes(type)) {
+            throw new Error(
+                `❌ Component layer cannot contain code-level types like '${type}'.\n\n` +
+                `HARD RULE: No files/classes/functions in component layer (ever).\n` +
+                `Use the 'code' layer for file-level details instead.`
+            );
+        }
+    }
     
     // Validation: Check if node type is recommended for this layer
     const warnings: string[] = [];
@@ -63,6 +84,10 @@ export async function addNode(graphState: GraphStateManager, args: any) {
             technology,
             path,
             parent,
+            // Component layer specific fields
+            ...(targetLayer === 'component' && responsibility ? { responsibility } : {}),
+            ...(targetLayer === 'component' && additionalProps.ownedData ? { ownedData: additionalProps.ownedData } : {}),
+            ...(targetLayer === 'component' && additionalProps.publicSurface ? { publicSurface: additionalProps.publicSurface } : {}),
             isAgentAdded: true, // Always mark as agent-added
             createdBy: 'ai-agent',
             createdAt: new Date().toISOString()
@@ -115,6 +140,77 @@ export async function addEdge(graphState: GraphStateManager, args: any) {
         warnings.push(
             `💡 Recommended edge types for '${targetLayer}': ${guidance.recommendedEdgeTypes.slice(0, 5).join(', ')}`
         );
+    }
+    
+    // Component layer edge type validation - enforce source/target type constraints
+    if (targetLayer === 'component' && edgeType) {
+        const layerIndexes = graphState.getIndexes(targetLayer);
+        const sourceNode = layerIndexes.getNodeById(sourceId);
+        const targetNode = layerIndexes.getNodeById(targetId);
+        
+        if (sourceNode && targetNode) {
+            const sourceType = sourceNode.data.type;
+            const targetType = targetNode.data.type;
+            
+            // Validate edge type constraints
+            switch (edgeType) {
+                case 'owns':
+                    if (sourceType !== 'bounded-context' || !['use-case', 'domain-model'].includes(targetType || '')) {
+                        throw new Error(
+                            `❌ Edge type 'owns' is only allowed from 'bounded-context' to 'use-case' or 'domain-model'.\n\n` +
+                            `   Source: '${sourceType}', Target: '${targetType}'\n` +
+                            `   Use 'owns' to show that a bounded-context owns specific use-cases and domain-models.`
+                        );
+                    }
+                    break;
+                case 'invokes':
+                    if (sourceType !== 'use-case' || !['domain-model', 'policy'].includes(targetType || '')) {
+                        throw new Error(
+                            `❌ Edge type 'invokes' is only allowed from 'use-case' to 'domain-model' or 'policy'.\n\n` +
+                            `   Source: '${sourceType}', Target: '${targetType}'\n` +
+                            `   Use 'invokes' to show that a use-case invokes domain models or policies.`
+                        );
+                    }
+                    break;
+                case 'persists-via':
+                    if (sourceType !== 'use-case' || targetType !== 'repository') {
+                        throw new Error(
+                            `❌ Edge type 'persists-via' is only allowed from 'use-case' to 'repository'.\n\n` +
+                            `   Source: '${sourceType}', Target: '${targetType}'\n` +
+                            `   Use 'persists-via' to show that a use-case persists data via a repository.`
+                        );
+                    }
+                    break;
+                case 'implemented-by':
+                    if (sourceType !== 'repository' || !['adapter'].includes(targetType || '')) {
+                        throw new Error(
+                            `❌ Edge type 'implemented-by' is only allowed from 'repository' to 'adapter'.\n\n` +
+                            `   Source: '${sourceType}', Target: '${targetType}'\n` +
+                            `   Use 'implemented-by' to show that a repository is implemented by an adapter.`
+                        );
+                    }
+                    break;
+                case 'integrates-via':
+                    if (sourceType !== 'use-case' || targetType !== 'adapter') {
+                        throw new Error(
+                            `❌ Edge type 'integrates-via' is only allowed from 'use-case' to 'adapter'.\n\n` +
+                            `   Source: '${sourceType}', Target: '${targetType}'\n` +
+                            `   Use 'integrates-via' to show that a use-case integrates via an adapter.`
+                        );
+                    }
+                    break;
+                case 'depends-on':
+                    // Only allow depends-on for shared-kernel relationships
+                    if (!['shared-kernel'].includes(sourceType || '') && !['shared-kernel'].includes(targetType || '')) {
+                        throw new Error(
+                            `❌ Edge type 'depends-on' is only allowed for shared-kernel relationships.\n\n` +
+                            `   Source: '${sourceType}', Target: '${targetType}'\n` +
+                            `   Use 'depends-on' only when a component depends on a shared-kernel.`
+                        );
+                    }
+                    break;
+            }
+        }
     }
     
     const edge: GraphEdge = {

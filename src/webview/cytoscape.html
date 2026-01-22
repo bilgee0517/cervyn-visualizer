@@ -48,18 +48,9 @@
                 </svg>
             </button>
             <div id="moreOptionsMenu" class="dropdown-menu">
-                <div class="dropdown-section">
-                    <div class="dropdown-section-title">Color Theme</div>
-                    <div class="color-picker-row">
-                        <label class="color-label">Nodes</label>
-                        <input type="color" id="nodeColorPicker" class="color-input" value="#3B82F6" title="Node base color">
-                    </div>
-                    <div class="color-picker-row">
-                        <label class="color-label">Edges</label>
-                        <input type="color" id="edgeColorPicker" class="color-input" value="#94A3B8" title="Edge base color">
-                    </div>
-                    <button id="resetColorsBtn" class="dropdown-item-small">Reset to Default</button>
-                </div>
+                <button id="toggleLegendBtn" class="dropdown-item">
+                    <span class="dropdown-label">Toggle Legend</span>
+                </button>
                 <div class="dropdown-divider"></div>
                 <button id="showHelpBtn" class="dropdown-item">
                     <span class="dropdown-label">Show Help</span>
@@ -86,6 +77,18 @@
     <div id="minimap" class="minimap">
         <canvas id="minimapCanvas"></canvas>
     </div>
+    
+    <!-- Legend Panel -->
+    <div id="legendPanel" class="legend-panel" style="display: none;">
+        <div class="legend-header">
+            <h3 class="legend-title">Legend</h3>
+            <button id="legendClose" class="legend-close-btn" title="Close">✕</button>
+        </div>
+        <div class="legend-content" id="legendContent">
+            <!-- Dynamically populated -->
+        </div>
+    </div>
+    
     <div class="loading" id="loading">Loading graph...</div>
     <div id="nodeTooltip"></div>
     
@@ -115,11 +118,13 @@
                 </p>
                 <ul id="onboardingTips">
                     <li>💡 <strong>Click nodes</strong> to navigate to files</li>
+                    <li>🔍 <strong>Search nodes</strong> using the search bar</li>
+                    <li>📊 <strong>Switch layers</strong> to view different abstraction levels (workflow, context, container, component, code)</li>
                     <li>🔍 <strong>Scroll</strong> to zoom in/out</li>
-                    <li>➕ <strong>Click "Expand"</strong> to see more connected files</li>
-                    <li>📏 <strong>Node size</strong> = lines of code</li>
-                    <li>🔴 <strong>Thick borders</strong> = high complexity</li>
-                    <li>🔵 <strong>Cyan glow</strong> = recently changed</li>
+                    <li>🗺️ <strong>Minimap</strong> shows graph overview - click to navigate</li>
+                    <li>🎨 <strong>Customize colors</strong> via More Options menu</li>
+                    <li>📖 <strong>Toggle Legend</strong> to see node and edge type meanings</li>
+                    <li>🤖 <strong>MCP Integration</strong> - Use AI to manipulate the graph</li>
                 </ul>
             </div>
             <div id="onboardingActions">

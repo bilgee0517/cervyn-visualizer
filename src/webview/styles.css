@@ -535,52 +535,6 @@ body {
     margin-bottom: var(--spacing-sm);
 }
 
-.color-picker-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--spacing-sm);
-}
-
-.color-label {
-    font-size: var(--font-size-base);
-    color: var(--vscode-foreground);
-    font-weight: var(--font-weight-medium);
-}
-
-.color-input {
-    width: 60px;
-    height: 28px;
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 4px;
-    cursor: pointer;
-    background: var(--vscode-input-background);
-}
-
-.color-input:hover {
-    border-color: var(--vscode-focusBorder);
-}
-
-.dropdown-item-small {
-    width: 100%;
-    background: transparent;
-    color: var(--vscode-descriptionForeground);
-    border: 1px solid var(--vscode-input-border);
-    padding: 6px 10px;
-    text-align: center;
-    cursor: pointer;
-    font-size: 11px;
-    border-radius: 4px;
-    margin-top: 4px;
-    transition: all 0.15s ease;
-}
-
-.dropdown-item-small:hover {
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-    border-color: var(--vscode-button-secondaryBorder);
-}
-
 /* ========== BOTTOM STATS ========== */
 .bottom-stats {
     position: absolute;
@@ -1023,6 +977,185 @@ body {
     padding: var(--spacing-lg);
     overflow-y: auto;
     flex: 1;
+}
+
+/* ========== LEGEND PANEL ========== */
+.legend-panel {
+    position: fixed;
+    top: 68px; /* 48px toolbar + 20px spacing */
+    right: var(--spacing-lg);
+    width: 280px;
+    height: 200px; /* Fixed height - matches content area + header */
+    background: var(--vscode-editorWidget-background);
+    border: var(--border-thin) solid var(--vscode-panel-border);
+    border-radius: var(--border-radius-md);
+    box-shadow: var(--shadow-md);
+    z-index: 99999; /* Ensure it's above cytoscape canvas */
+    display: flex;
+    flex-direction: column;
+    transition: all var(--transition-normal);
+    pointer-events: auto; /* Ensure it can receive mouse events */
+    overflow: hidden; /* Hide overflow on panel itself */
+    opacity: 0.95; /* Slightly transparent for subtle look */
+}
+
+.legend-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-bottom: var(--border-thin) solid var(--vscode-panel-border);
+    background: var(--vscode-editorWidget-background);
+    flex-shrink: 0; /* Prevent header from shrinking */
+}
+
+.legend-title {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--vscode-foreground);
+}
+
+.legend-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--font-size-base);
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius-sm);
+    transition: background var(--transition-fast);
+}
+
+.legend-close-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.legend-content {
+    padding: var(--spacing-sm) var(--spacing-md);
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1 1 0; /* Use flex-basis 0 for proper flex behavior */
+    min-height: 0; /* Critical: Allow flex item to shrink below content size */
+    /* Fixed height calculated: 200px panel - ~32px header (padding + border + content) */
+    height: calc(200px - 32px);
+    max-height: calc(200px - 32px);
+    /* Scrollbar styling for better visibility */
+    scrollbar-width: thin;
+    scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+}
+
+.legend-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.legend-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.legend-content::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background);
+    border-radius: 3px;
+}
+
+.legend-content::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+.legend-section {
+    margin-bottom: var(--spacing-sm);
+}
+
+.legend-section:last-child {
+    margin-bottom: 0;
+}
+
+.legend-section-title {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: var(--spacing-xs);
+    padding-bottom: 2px;
+    border-bottom: var(--border-thin) solid var(--vscode-panel-border);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.legend-items {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: 1px 0;
+}
+
+.legend-sample {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.legend-node-sample {
+    width: 24px;
+    height: 18px;
+    border-radius: 3px;
+    border: 1.5px solid;
+    background-color: var(--sample-bg, transparent);
+    border-color: var(--sample-border, #ccc);
+    border-style: var(--sample-border-style, solid);
+}
+
+.legend-edge-sample {
+    width: 32px;
+    height: 0;
+    position: relative;
+    border-top: 1.5px solid var(--sample-color, #ccc);
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+}
+
+.legend-edge-sample[data-style="dashed"] {
+    border-top-style: dashed;
+}
+
+.legend-edge-sample[data-style="dotted"] {
+    border-top-style: dotted;
+}
+
+.legend-edge-sample::after {
+    content: '';
+    position: absolute;
+    right: -6px;
+    top: -4px;
+    width: 0;
+    height: 0;
+    border-left: 6px solid var(--sample-color, #ccc);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+}
+
+.legend-item-label {
+    font-size: var(--font-size-xs);
+    color: var(--vscode-foreground);
+    flex: 1;
+}
+
+.legend-item-description {
+    font-size: var(--font-size-xs);
+    color: var(--vscode-descriptionForeground);
+    margin-top: 2px;
 }
 
 .feature-info {

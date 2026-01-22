@@ -603,16 +603,43 @@ export const CYTOSCAPE_STYLES = [
   },
   
   // =============================================================================
-  // COMPONENT LAYER NODE STYLES - Modules & Packages
+  // COMPONENT LAYER NODE STYLES - DDD-Inspired Meaningful Components
   // =============================================================================
   
-  // Module nodes - Purple for modules
+  // Bounded context nodes - Large compound nodes with dashed border
   {
-    selector: 'node[type="module"]',
+    selector: 'node[type="bounded-context"]',
     style: {
       'shape': 'round-rectangle',
-      'background-color': COLORS.component.module,
-      'border-color': COLORS.component.module,
+      'background-color': PALETTE.blue.light,
+      'background-opacity': OPACITY_SEMANTIC.directoryBackground,
+      'border-color': PALETTE.blue.DEFAULT,
+      'border-width': BORDERS.directory,
+      'border-style': 'dashed',
+      'font-size': TYPOGRAPHY.node.directory.fontSize,
+      'font-weight': TYPOGRAPHY.node.directory.fontWeight,
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.directory.textMaxWidth,
+      'min-width': `${NODE_SIZES.directory.minWidth}px`,
+      'min-height': `${NODE_SIZES.directory.minHeight}px`,
+      'width': `${NODE_SIZES.directory.width}px`,
+      'height': `${NODE_SIZES.directory.height}px`,
+      'padding': getNodePadding('directory'),
+      'text-valign': 'top',
+      'text-margin-y': getTextMargin('directory'),
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeDirectory,
+      'compound-sizing-wrt-labels': 'exclude',
+    },
+  },
+  
+  // Use-case nodes - Medium size, teal color
+  {
+    selector: 'node[type="use-case"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': PALETTE.teal.DEFAULT,
+      'border-color': PALETTE.teal.dark,
       'border-width': BORDERS.medium,
       'font-size': TYPOGRAPHY.node.class.fontSize,
       'font-weight': '600',
@@ -629,13 +656,13 @@ export const CYTOSCAPE_STYLES = [
     },
   },
   
-  // Package nodes - Violet for packages
+  // Domain model nodes - Medium size, indigo color
   {
-    selector: 'node[type="package"]',
+    selector: 'node[type="domain-model"]',
     style: {
       'shape': 'round-rectangle',
-      'background-color': COLORS.component.package,
-      'border-color': COLORS.component.package,
+      'background-color': PALETTE.indigo.DEFAULT,
+      'border-color': PALETTE.indigo.dark,
       'border-width': BORDERS.medium,
       'font-size': TYPOGRAPHY.node.class.fontSize,
       'font-weight': '600',
@@ -652,13 +679,36 @@ export const CYTOSCAPE_STYLES = [
     },
   },
   
-  // Component nodes - Indigo for components
+  // Adapter nodes - Smaller, pink accent
   {
-    selector: 'node[type="component"]',
+    selector: 'node[type="adapter"]',
     style: {
       'shape': 'round-rectangle',
-      'background-color': COLORS.component.component,
-      'border-color': COLORS.component.component,
+      'background-color': PALETTE.pink.light,
+      'border-color': PALETTE.pink.DEFAULT,
+      'border-width': BORDERS.normal,
+      'font-size': TYPOGRAPHY.node.function.fontSize,
+      'font-weight': TYPOGRAPHY.node.function.fontWeight,
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.function.textMaxWidth,
+      'min-width': `${NODE_SIZES.function.minWidth}px`,
+      'min-height': `${NODE_SIZES.function.minHeight}px`,
+      'width': `${NODE_SIZES.function.width}px`,
+      'height': `${NODE_SIZES.function.height}px`,
+      'padding': getNodePadding('function'),
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeFunction,
+    },
+  },
+  
+  // Repository nodes - Medium, yellow (data-focused)
+  {
+    selector: 'node[type="repository"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': PALETTE.yellow.light,
+      'border-color': PALETTE.yellow.DEFAULT,
       'border-width': BORDERS.medium,
       'font-size': TYPOGRAPHY.node.class.fontSize,
       'font-weight': '600',
@@ -675,14 +725,65 @@ export const CYTOSCAPE_STYLES = [
     },
   },
   
-  // Library nodes - Blue for libraries
+  // Policy nodes - Small, orange (rule-focused)
   {
-    selector: 'node[type="library"]',
+    selector: 'node[type="policy"]',
     style: {
       'shape': 'round-rectangle',
-      'background-color': COLORS.component.library,
-      'border-color': COLORS.component.library,
+      'background-color': PALETTE.orange.light,
+      'border-color': PALETTE.orange.DEFAULT,
+      'border-width': BORDERS.normal,
+      'font-size': TYPOGRAPHY.node.function.fontSize,
+      'font-weight': TYPOGRAPHY.node.function.fontWeight,
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.function.textMaxWidth,
+      'min-width': `${NODE_SIZES.function.minWidth}px`,
+      'min-height': `${NODE_SIZES.function.minHeight}px`,
+      'width': `${NODE_SIZES.function.width}px`,
+      'height': `${NODE_SIZES.function.height}px`,
+      'padding': getNodePadding('function'),
+      'text-valign': 'center',
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeFunction,
+    },
+  },
+  
+  // Subsystem nodes - Large compound nodes (escape hatch)
+  {
+    selector: 'node[type="subsystem"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': PALETTE.neutral[300],
+      'background-opacity': OPACITY_SEMANTIC.directoryBackground,
+      'border-color': PALETTE.neutral[600],
+      'border-width': BORDERS.directory,
+      'border-style': 'dashed',
+      'font-size': TYPOGRAPHY.node.directory.fontSize,
+      'font-weight': TYPOGRAPHY.node.directory.fontWeight,
+      'text-wrap': 'ellipsis',
+      'text-max-width': TYPOGRAPHY.node.directory.textMaxWidth,
+      'min-width': `${NODE_SIZES.directory.minWidth}px`,
+      'min-height': `${NODE_SIZES.directory.minHeight}px`,
+      'width': `${NODE_SIZES.directory.width}px`,
+      'height': `${NODE_SIZES.directory.height}px`,
+      'padding': getNodePadding('directory'),
+      'text-valign': 'top',
+      'text-margin-y': getTextMargin('directory'),
+      'color': COLORS.text.primary,
+      'z-index': Z_INDEX.nodeDirectory,
+      'compound-sizing-wrt-labels': 'exclude',
+    },
+  },
+  
+  // Shared kernel nodes - Medium, violet (shared library style)
+  {
+    selector: 'node[type="shared-kernel"]',
+    style: {
+      'shape': 'round-rectangle',
+      'background-color': PALETTE.violet.light,
+      'border-color': PALETTE.violet.DEFAULT,
       'border-width': BORDERS.medium,
+      'border-style': 'dotted',
       'font-size': TYPOGRAPHY.node.class.fontSize,
       'font-weight': '600',
       'text-wrap': 'ellipsis',
@@ -1172,6 +1273,80 @@ export const CYTOSCAPE_STYLES = [
       'line-style': 'dotted',
       'opacity': OPACITY.dimmed,
       'target-arrow-shape': 'diamond',  // Diamond for bidirectional
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // =============================================================================
+  // COMPONENT LAYER EDGE STYLES - DDD-Inspired Domain Relationships
+  // =============================================================================
+  
+  // Owns edges - Blue, thick, dashed (bounded-context owns use-cases/domain-models)
+  {
+    selector: 'edge[edgeType="owns"]',
+    style: {
+      'line-color': PALETTE.blue.DEFAULT,
+      'target-arrow-color': PALETTE.blue.DEFAULT,
+      'width': BORDERS.thick,
+      'line-style': 'dashed',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Invokes edges - Teal, medium, solid (use-case invokes domain-model/policy)
+  {
+    selector: 'edge[edgeType="invokes"]',
+    style: {
+      'line-color': PALETTE.teal.DEFAULT,
+      'target-arrow-color': PALETTE.teal.DEFAULT,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Persists Via edges - Yellow, medium, solid (use-case persists via repository)
+  {
+    selector: 'edge[edgeType="persists-via"]',
+    style: {
+      'line-color': PALETTE.yellow.DEFAULT,
+      'target-arrow-color': PALETTE.yellow.DEFAULT,
+      'width': BORDERS.medium,
+      'line-style': 'solid',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Implemented By edges - Pink, medium, dashed (repository implemented by adapter)
+  {
+    selector: 'edge[edgeType="implemented-by"]',
+    style: {
+      'line-color': PALETTE.pink.DEFAULT,
+      'target-arrow-color': PALETTE.pink.DEFAULT,
+      'width': BORDERS.medium,
+      'line-style': 'dashed',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
+      'z-index': Z_INDEX.edge,
+    },
+  },
+  
+  // Integrates Via edges - Rose, medium, dotted (use-case integrates via adapter)
+  {
+    selector: 'edge[edgeType="integrates-via"]',
+    style: {
+      'line-color': PALETTE.rose.DEFAULT,
+      'target-arrow-color': PALETTE.rose.DEFAULT,
+      'width': BORDERS.medium,
+      'line-style': 'dotted',
+      'opacity': OPACITY_SEMANTIC.edge,
+      'target-arrow-shape': 'triangle',
       'z-index': Z_INDEX.edge,
     },
   },
