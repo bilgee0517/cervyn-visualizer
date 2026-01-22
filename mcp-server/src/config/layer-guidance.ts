@@ -268,66 +268,88 @@ export const LAYER_GUIDANCE: Record<Layer, LayerGuidance> = {
     
     component: {
         name: 'Component Layer',
-        purpose: 'Internal components and modules',
-        description: 'Define logical groupings within containers. Show modules, packages, and major code components (C4 Level 3).',
+        purpose: 'Meaningful component boundaries with clear responsibilities',
+        description: 'DDD-inspired component layer mapping stable architectural boundaries. Every component must answer "what responsibility does it own?" Use bounded-context as compound nodes containing use-cases and domain-models. Max depth: readable in 30 seconds.',
         recommendedNodeTypes: [
-            'module',
-            'package',
-            'component',
-            'library',
-            'namespace',
-            'plugin'
+            'bounded-context',  // DDD bounded context - contains use-cases and domain-models (should be compound)
+            'use-case',         // Business use case within a bounded context
+            'domain-model',     // Domain model/entity
+            'adapter',          // Adapter (port-adapter pattern)
+            'repository',       // Repository pattern
+            'policy',           // Business policy/rule
+            'subsystem',        // Escape hatch for large chunks (should be compound)
+            'shared-kernel'     // Shared kernel (shared domain model)
         ],
         recommendedEdgeTypes: [
-            'imports',
-            'depends-on',
-            'extends',
-            'implements',
-            'uses'
+            'owns',           // bounded-context → use-case/domain-model
+            'invokes',        // use-case → domain-model/policy
+            'persists-via',   // use-case → repository
+            'implemented-by', // repository → adapter/storage-module
+            'integrates-via', // use-case → adapter
+            'depends-on'      // Only for shared-kernel relationships
         ],
         examples: [
-            '"auth-module" module',
-            '"@company/utils" package',
-            '"UserManagement" component',
-            '"payment-processor" library'
+            '"User Management" bounded-context (compound) containing "RegisterUser" use-case and "User" domain-model',
+            '"Order Processing" bounded-context --owns--> "CreateOrder" use-case',
+            '"CreateOrder" use-case --invokes--> "Order" domain-model',
+            '"CreateOrder" use-case --invokes--> "PaymentPolicy" policy',
+            '"CreateOrder" use-case --persists-via--> "OrderRepository" repository',
+            '"OrderRepository" repository --implemented-by--> "PostgreSQLAdapter" adapter',
+            '"RegisterUser" use-case --integrates-via--> "EmailAdapter" adapter',
+            '"SharedKernel" shared-kernel --depends-on--> "User" domain-model (cross-context)'
         ],
         useCases: [
-            'Organize code into logical groups',
-            'Document internal module structure',
-            'Show package dependencies',
-            'Plan refactoring and module boundaries',
-            'Identify reusable components'
+            'Map bounded contexts and their responsibilities',
+            'Show use-cases within bounded contexts',
+            'Model domain models and their relationships',
+            'Document repositories and their adapter implementations',
+            'Show integration patterns (adapters)',
+            'Define business policies and rules',
+            'Identify shared kernels between contexts',
+            'Plan refactoring with clear boundaries'
         ],
         warnings: [
-            'Use for logical groupings, not individual files',
-            'Tag with supportsFeatures to trace features to modules',
-            'Consider using for npm packages and major subsystems'
+            'STRICT VALIDATION ENABLED - Only use recommended node types',
+            'HARD RULE: No files/classes/functions in component layer (ever)',
+            'REQUIRED: Every component node must have "responsibility" field (1 sentence)',
+            'Every node should map to a stable boundary (something you\'d mention in a design review)',
+            'Max depth: graph should be readable in 30 seconds',
+            'Use bounded-context and subsystem as compound nodes',
+            'bounded-context should own use-cases and domain-models via "owns" edges',
+            'depends-on is ONLY for shared-kernel relationships',
+            'Tag with supportsFeatures to trace features to components'
         ],
         whatToInclude: [
-            'NPM packages and modules (@myapp/auth, @myapp/payments)',
-            'Code components and UI components (Button, UserProfile, PaymentForm)',
-            'Reusable libraries (logger, http-client, validation)',
-            'Domain modules (user-management, order-processing)',
-            'Shared utilities and helpers',
-            'Plugin systems and extensions',
-            'Namespaces and logical groupings of code'
+            'Bounded contexts: Major domain boundaries (User Management, Order Processing, Payment)',
+            'Use-cases: Business operations (RegisterUser, CreateOrder, ProcessPayment)',
+            'Domain models: Core business entities (User, Order, Product)',
+            'Repositories: Data access abstractions (UserRepository, OrderRepository)',
+            'Adapters: Integration implementations (EmailAdapter, PaymentGatewayAdapter)',
+            'Policies: Business rules (PasswordPolicy, DiscountPolicy)',
+            'Shared kernels: Shared domain models used across contexts',
+            'Subsystems: Large chunks that don\'t fit cleanly (escape hatch)',
+            'Responsibilities: What each component owns (REQUIRED field)'
         ],
         whatToAvoid: [
-            'Individual files (use code layer)',
-            'Classes and functions (use code layer)',
-            'Deployable applications (use container layer)',
-            'External dependencies (use context layer)',
-            'Features (use workflow layer)'
+            'Individual files, classes, or functions (use code layer instead)',
+            'Deployable applications or services (use container layer instead)',
+            'External dependencies (use context layer instead)',
+            'Features and capabilities (use workflow layer instead)',
+            'Generic module/package/library types (use new DDD types instead)',
+            'Components without clear responsibilities',
+            'Unstable boundaries that change frequently'
         ],
         nodeTypeMapping: {
-            'module': 'round-rectangle (module indicator)',
-            'package': 'round-rectangle (package icon)',
-            'component': 'round-rectangle (component icon)',
-            'library': 'round-rectangle (library indicator)',
-            'namespace': 'round-rectangle with dashed border (logical grouping)',
-            'plugin': 'round-rectangle (plugin icon)'
+            'bounded-context': 'round-rectangle with dashed border (large, compound node, distinct color)',
+            'use-case': 'round-rectangle (medium size, use-case color)',
+            'domain-model': 'round-rectangle (medium size, domain-model color)',
+            'adapter': 'round-rectangle (smaller, adapter accent color)',
+            'repository': 'round-rectangle (medium, repository/data color)',
+            'policy': 'round-rectangle (small, policy/rule color)',
+            'subsystem': 'round-rectangle with dashed border (large, compound node, escape hatch)',
+            'shared-kernel': 'round-rectangle (medium, shared library style)'
         },
-        strictValidation: false
+        strictValidation: true  // STRICT: Enforce meaningful component boundaries
     },
     
     code: {

@@ -26,8 +26,14 @@ export const EdgeTypeSchema = z.enum([
     'calls',
     'extends',
     'implements',
-    'depends-on',  // NOTE: Should NOT be used in context layer - too vague for boundary interactions
+    'depends-on',  // NOTE: Only for shared-kernel relationships in component layer
     'uses',
+    // Component layer edges (DDD-inspired)
+    'owns',           // bounded-context → use-case/domain-model
+    'invokes',        // use-case → domain-model/policy
+    'persists-via',   // use-case → repository
+    'implemented-by', // repository → adapter/storage-module
+    'integrates-via', // use-case → adapter
     // Workflow layer edges (product semantics only)
     'depends-on-feature',   // Feature dependency (replaces "requires")
     'part-of',              // Feature composition (replaces "composed-of")
@@ -74,7 +80,16 @@ export const ContextNodeTypeSchema = z.enum([
     'external-service'     // SaaS services like Auth0, Stripe, Twilio (replaces 'third-party-service', 'external-dependency')
 ]);
 export const ContainerNodeTypeSchema = z.enum(['frontend', 'service', 'worker', 'gateway', 'message-broker', 'datastore', 'cache', 'object-store']);
-export const ComponentNodeTypeSchema = z.enum(['module', 'package', 'component', 'library', 'namespace', 'plugin']);
+export const ComponentNodeTypeSchema = z.enum([
+    'bounded-context',  // DDD bounded context - contains use-cases and domain-models
+    'use-case',         // Business use case within a bounded context
+    'domain-model',     // Domain model/entity
+    'adapter',          // Adapter (port-adapter pattern)
+    'repository',       // Repository pattern
+    'policy',           // Business policy/rule
+    'subsystem',        // Escape hatch for large chunks
+    'shared-kernel'     // Shared kernel (shared domain model)
+]);
 export const CodeNodeTypeSchema = z.enum(['file', 'directory', 'class', 'function', 'interface', 'type', 'concept']);
 
 /**
@@ -106,6 +121,10 @@ export const AddNodeArgsSchema = z.object({
     technology: z.string().optional(),
     path: z.string().optional(),
     parent: z.string().optional(),
+    // Component layer specific fields
+    responsibility: z.string().optional(), // REQUIRED for component layer: 1 sentence describing what responsibility it owns
+    ownedData: z.array(z.string()).optional(), // Optional: what state/data this component owns
+    publicSurface: z.array(z.string()).optional(), // Optional: routes/events exposed by this component
     // Feature annotation properties
     supportsFeatures: z.array(z.string()).optional(), // For all layers except workflow
     supportedBy: z.array(z.string()).optional()       // For workflow layer only
