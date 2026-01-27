@@ -24,6 +24,11 @@ export class MockCytoscapeNode {
     this._data[key] = value;
     return this;
   }
+
+  removeData(key: string): this {
+    delete this._data[key];
+    return this;
+  }
   
   position(pos?: { x: number; y: number }): any {
     if (pos === undefined) return this._position;
@@ -39,6 +44,11 @@ export class MockCytoscapeNode {
     if (property === undefined) return Object.fromEntries(this._style);
     if (value === undefined) return this._style.get(property);
     this._style.set(property, value);
+    return this;
+  }
+
+  removeStyle(property: string): this {
+    this._style.delete(property);
     return this;
   }
   
@@ -106,6 +116,12 @@ export class MockCytoscapeNode {
   
   target(): MockCytoscapeNode {
     return this;
+  }
+
+  connectedEdges(): MockCytoscapeCollection {
+    // Return empty collection for testing
+    // In real Cytoscape, this would return edges connected to this node
+    return new MockCytoscapeCollection([]);
   }
 }
 
@@ -321,7 +337,36 @@ export class MockCytoscape {
   height(): number {
     return 600;
   }
-  
+
+  container(): HTMLElement | null {
+    // Return a mock HTML element
+    const mockElement = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      style: {},
+      offsetWidth: 800,
+      offsetHeight: 600
+    };
+    return mockElement as any;
+  }
+
+  extent(): any {
+    // Return viewport boundaries in graph coordinates
+    const zoom = this._zoom;
+    const pan = this._pan;
+    const width = 800;
+    const height = 600;
+
+    return {
+      x1: -pan.x / zoom,
+      y1: -pan.y / zoom,
+      x2: (width - pan.x) / zoom,
+      y2: (height - pan.y) / zoom,
+      w: width / zoom,
+      h: height / zoom
+    };
+  }
+
   $(selector: string): MockCytoscapeCollection {
     // Simple selector parsing for common cases
     if (selector.includes('[type=')) {

@@ -107,8 +107,8 @@ describe('Result Transformation', () => {
     test('map should preserve Err', () => {
         const error = new Error('Failed');
         const result: Result<number, Error> = Err(error);
-        const doubled = map(result, x => x * 2);
-        
+        const doubled = map(result, (x: number) => x * 2);
+
         expect(isErr(doubled)).toBe(true);
         if (!doubled.ok) {
             expect(doubled.error).toBe(error);
@@ -151,8 +151,8 @@ describe('Result Chaining', () => {
     test('andThen should short-circuit on Err', () => {
         const error = new Error('Failed');
         const result: Result<number, Error> = Err(error);
-        const chained = andThen(result, x => Ok(x * 2));
-        
+        const chained = andThen(result, (x: number) => Ok(x * 2));
+
         expect(isErr(chained)).toBe(true);
         if (!chained.ok) {
             expect(chained.error).toBe(error);
@@ -347,8 +347,8 @@ describe('Result Utilities', () => {
     test('tap should not execute for Err', () => {
         let sideEffect = 0;
         const result: Result<number, Error> = Err(new Error());
-        const tapped = tap(result, val => { sideEffect = val; });
-        
+        const tapped = tap(result, (val: number) => { sideEffect = val; });
+
         expect(sideEffect).toBe(0);
         expect(tapped).toBe(result);
     });

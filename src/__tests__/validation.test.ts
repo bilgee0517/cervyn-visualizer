@@ -14,10 +14,11 @@ import {
 
 describe('Layer Schema', () => {
     test('should accept valid layers', () => {
-        expect(() => LayerSchema.parse('blueprint')).not.toThrow();
-        expect(() => LayerSchema.parse('architecture')).not.toThrow();
-        expect(() => LayerSchema.parse('implementation')).not.toThrow();
-        expect(() => LayerSchema.parse('dependencies')).not.toThrow();
+        expect(() => LayerSchema.parse('workflow')).not.toThrow();
+        expect(() => LayerSchema.parse('context')).not.toThrow();
+        expect(() => LayerSchema.parse('container')).not.toThrow();
+        expect(() => LayerSchema.parse('component')).not.toThrow();
+        expect(() => LayerSchema.parse('code')).not.toThrow();
     });
 
     test('should reject invalid layers', () => {
@@ -64,8 +65,8 @@ describe('Get Graph Args Schema', () => {
     });
 
     test('should accept valid layer', () => {
-        const result = GetGraphArgsSchema.parse({ layer: 'implementation' });
-        expect(result.layer).toBe('implementation');
+        const result = GetGraphArgsSchema.parse({ layer: 'code' });
+        expect(result.layer).toBe('code');
     });
 
     test('should reject invalid properties', () => {
@@ -158,7 +159,8 @@ describe('Validation Error Messages', () => {
             if (error instanceof z.ZodError) {
                 const issue = error.issues[0];
                 expect(issue.path).toContain('nodeId');
-                expect(issue.message).toContain('required');
+                // Zod v4 changed error messages
+                expect(issue.message).toMatch(/required|expected string, received undefined/i);
             }
         }
     });
@@ -186,13 +188,13 @@ describe('Schema Composition', () => {
             status: ProgressStatusSchema,
             edgeType: EdgeTypeSchema
         });
-        
+
         const valid = {
-            layer: 'implementation' as const,
+            layer: 'code' as const,
             status: 'done' as const,
             edgeType: 'imports' as const
         };
-        
+
         expect(() => ComposedSchema.parse(valid)).not.toThrow();
     });
 });
@@ -252,15 +254,15 @@ describe('Type Inference', () => {
 
     test('should enforce type constraints at compile time', () => {
         type Layer = z.infer<typeof LayerSchema>;
-        
+
         // These should be valid
-        const layer1: Layer = 'blueprint';
-        const layer2: Layer = 'implementation';
-        
+        const layer1: Layer = 'workflow';
+        const layer2: Layer = 'code';
+
         // This would cause a TypeScript error if uncommented:
         // const invalid: Layer = 'invalid';
-        
-        expect(layer1).toBe('blueprint');
-        expect(layer2).toBe('implementation');
+
+        expect(layer1).toBe('workflow');
+        expect(layer2).toBe('code');
     });
 });
