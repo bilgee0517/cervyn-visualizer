@@ -172,6 +172,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "test:coverage:html": "jest --coverage --coverageReporters=html",
+    "test:coverage:lcov": "jest --coverage --coverageReporters=lcov",
+    "test:coverage:json": "jest --coverage --coverageReporters=json-summary",
     "test:e2e": "node ./out/test/runTest.js"
   },
   "devDependencies": {
